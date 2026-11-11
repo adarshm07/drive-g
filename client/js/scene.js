@@ -5,6 +5,7 @@ import {
   samplePath, heightAt, distToRoad, waterDist, surfaceAt, onCrossingRoad,
 } from '/shared/world.js';
 import { makeLabel } from './cars.js';
+import { coconutPalm, arecaPalm, palmMaterial, lodInstances } from './palms.js';
 import { SHOP_TYPES, KEEPERS, makeKeeper } from './shops.js';
 
 const L = (color, o = {}) => new THREE.MeshLambertMaterial({ color, flatShading: true, ...o });
@@ -680,21 +681,19 @@ export function buildWorld(scene) {
       palms.push({ x, y: heightAt(x, z), z });
       colliders.push({ x, z, r: 0.35 });
     }
-    const trunkG = new THREE.CylinderGeometry(0.16, 0.3, 7, 5).translate(0, 3.5, 0);
-    const fronds = [];
-    for (let k = 0; k < 7; k++)
-      fronds.push(new THREE.BoxGeometry(0.75, 0.06, 3.6).translate(0, 0, 1.8).rotateX(0.42).rotateY((k * Math.PI * 2) / 7).translate(0, 7, 0));
-    const trunks = new THREE.InstancedMesh(trunkG, L(0x8a6b45), palms.length);
-    const leaves = new THREE.InstancedMesh(mergeGeometries(fronds), L(0x2f8f3e), palms.length);
+    // three trunk shapes (upright, leaning, strongly curved), each pointing its own way
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
-    palms.forEach((p, i) => {
-      const s = 0.85 + rng() * 0.55;
-      e.set((rng() - 0.5) * 0.25, rng() * 6.28, (rng() - 0.5) * 0.25);
-      m.compose(V(p.x, p.y, p.z), q.setFromEuler(e), V(s, s, s));
-      trunks.setMatrixAt(i, m);
-      leaves.setMatrixAt(i, m);
+    const palmMat = palmMaterial(), byShape = [[], [], []];
+    palms.forEach((p) => byShape[Math.floor(rng() * 3)].push(p));
+    byShape.forEach((list, v) => {
+      const mats = list.map((p) => {
+        const s = 0.85 + rng() * 0.4;
+        e.set((rng() - 0.5) * 0.08, rng() * 6.28, (rng() - 0.5) * 0.08);
+        return new THREE.Matrix4().compose(V(p.x, p.y - 0.1, p.z), q.setFromEuler(e), V(s, s * (0.9 + rng() * 0.25), s));
+      });
+      const lod = lodInstances(scene, coconutPalm(v), coconutPalm(v, true), palmMat, mats);
+      animated.push((t, cam) => cam && lod(cam.position));
     });
-    scene.add(trunks, leaves);
 
     // broadleaf trees (mango, jackfruit) inland
     const tg = mergeGeometries([new THREE.CylinderGeometry(0.3, 0.4, 2.4, 5).toNonIndexed().translate(0, 1.2, 0), new THREE.IcosahedronGeometry(2.4, 0).translate(0, 4, 0)]);
@@ -718,7 +717,7 @@ export function buildWorld(scene) {
   {
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
     // scatter up to `max` instances of a model where accept(x, z) says the land suits it
-    function scatter(max, geo, mat, accept, { min = 0.8, max: smax = 1.4, r = 0.4, sink = 0.1 } = {}) {
+    function scatter(max, geo, mat, accept, { min = 0.8, max: smax = 1.4, r = 0.4, sink = 0.1, far = null } = {}) {
       const spots = [];
       for (let i = 0; i < max * 40 && spots.length < max; i++) {
         const x = B.x0 + rng() * (B.x1 - B.x0), z = B.z0 + rng() * (B.z1 - B.z0);
@@ -726,20 +725,25 @@ export function buildWorld(scene) {
         if (!accept(x, z, waterDist(x, z))) continue;
         spots.push([x, z]);
       }
-      const mesh = new THREE.InstancedMesh(geo, mat, spots.length);
-      spots.forEach(([x, z], i) => {
+      const mats = spots.map(([x, z]) => {
         const sc = min + rng() * (smax - min);
         e.set(0, rng() * 6.28, 0);
-        m.compose(V(x, heightAt(x, z) - sink, z), q.setFromEuler(e), V(sc, sc * (0.85 + rng() * 0.3), sc));
-        mesh.setMatrixAt(i, m);
         if (r) colliders.push({ x, z, r });
+        return new THREE.Matrix4().compose(V(x, heightAt(x, z) - sink, z), q.setFromEuler(e), V(sc, sc * (0.85 + rng() * 0.3), sc));
       });
+      if (far) { // a detailed model near the camera, a cheap one further away
+        const lod = lodInstances(scene, geo, far, mat, mats);
+        animated.push((t, cam) => cam && lod(cam.position));
+        return;
+      }
+      const mesh = new THREE.InstancedMesh(geo, mat, spots.length);
+      mats.forEach((mm, i) => mesh.setMatrixAt(i, mm));
       scene.add(mesh);
     }
     const G = (list) => mergeGeometries(list.map((g) => (g.index ? g.toNonIndexed() : g)));
     // areca palms: thin and tall, in groves inland
-    scatter(1500, G([new THREE.CylinderGeometry(0.07, 0.1, 9, 5).translate(0, 4.5, 0), new THREE.ConeGeometry(1.3, 1.1, 6).translate(0, 9.3, 0)]), L(0x3c9a4a),
-      (x, z, sd) => sd > 20 && vnoise(x + 300, z + 80, 60) > 0.62 && free(x, z), { r: 0.2 });
+    scatter(1500, arecaPalm(), palmMaterial(),
+      (x, z, sd) => sd > 20 && vnoise(x + 300, z + 80, 60) > 0.62 && free(x, z), { r: 0.2, far: arecaPalm(true) });
     // banana plants around the houses
     const leaf = (a) => new THREE.BoxGeometry(0.5, 0.05, 1.9).translate(0, 0, 0.95).rotateX(-0.75).rotateY(a).translate(0, 1.5, 0);
     scatter(1300, G([new THREE.CylinderGeometry(0.14, 0.18, 1.6, 5).translate(0, 0.8, 0), ...[0, 1.25, 2.5, 3.75, 5].map(leaf)]), L(0x7cc44f),
@@ -797,7 +801,7 @@ export function buildWorld(scene) {
   // shopkeepers wave now and then
   animated.push((t) => { for (let i = 0; i < shops.length; i++) shops[i].mesh.userData.arm.rotation.z = Math.max(0, Math.sin(t * 1.5 + i * 2)) * 2.2; });
 
-  return { colliders, beacons, shops, update: (t) => animated.forEach((f) => f(t)) };
+  return { colliders, beacons, shops, update: (t, camera) => animated.forEach((f) => f(t, camera)) };
 }
 
 export { roadY };

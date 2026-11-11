@@ -955,7 +955,7 @@ let sendAcc = 0, slowAcc = 0, first = true;
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
-  world.update(t);
+  world.update(t, camera);
   engineUpdate(dt);
   traffic.update(Date.now() / 1000);
   waterFx.update(dt);
