@@ -4,8 +4,10 @@
 // scripts/build-map.py into ./map-data.js. Map data (c) OpenStreetMap contributors, ODbL.
 
 import * as MAP from './map-data.js';
+import { RAILWAY, STATION, BUS_TERMINAL } from './rail-data.js';
 
 export const { BOUNDS, TERRAIN, LANDMARKS, PADDIES, SPAWNS, BEACH_ENTRY, COCONUT_SPOTS } = MAP;
+export { RAILWAY, STATION, BUS_TERMINAL };
 
 export const WORLD = {
   bounds: BOUNDS,
@@ -104,6 +106,47 @@ const ROAD_SAMPLES = ROADS.map((r, ri) => {
 });
 
 /**
+ * Kannur station, laid out across the line. `a` is distance along the line from STATION (x, z) in
+ * its direction; offsets are to the left of that direction, which is the town (east) side here.
+ * A road runs close along the west side, so at 1:10 there is only room for the platforms and the
+ * building on the town side, where the line is straight from about a = -69 to a = +18.
+ */
+export const STATION_LAYOUT = {
+  a0: -19,                                   // middle of the platforms, on the straight
+  westTrack: -2.5, eastTrack: 2.5,           // the double track away from the station
+  eastTrackAtStation: 5.1,                   // the east track swings out round the island platform
+  island: [-0.8, 3.4, 44],                   // platforms 2 and 3: from, to (offsets), length
+  platform1: [6.8, 11, 54],
+  building: [11.6, 18.2, 32, -10],           // from, to, length, centre a
+  footbridgeA: -2,
+  band: [-4, 19.5],                          // the strip kept clear for the station
+};
+
+// The railway joins the same grid (road index -1), so it is graded like a road, the land beside it is
+// cut or filled to meet it, and nothing gets built on it. Through the station it covers the whole layout.
+export const RAIL_PTS = [];
+for (let i = 0; i < RAILWAY.line.length; i += 2) RAIL_PTS.push([RAILWAY.line[i], RAILWAY.line[i + 1]]);
+{
+  const sm = samplePath(RAIL_PTS, 2), slots = [];
+  const stx = Math.sin(STATION.rot), stz = Math.cos(STATION.rot), [b0, b1] = STATION_LAYOUT.band;
+  sm.forEach(([x, z], n) => {
+    const a = sm[Math.max(n - 1, 0)], b = sm[Math.min(n + 1, sm.length - 1)];
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, tx = (b[0] - a[0]) / l, tz = (b[1] - a[1]) / l;
+    const along = (x - STATION.x) * stx + (z - STATION.z) * stz - STATION_LAYOUT.a0;
+    const atStation = Math.abs(along) < 34 && Math.hypot(x - STATION.x, z - STATION.z) < 80;
+    // through the station the strip is off-centre: move the sample to its middle (left is (-tz, tx))
+    const shift = atStation ? (b0 + b1) / 2 : 0, half = atStation ? (b1 - b0) / 2 : 5;
+    const cx = x - tz * shift, cz = z + tx * shift;
+    const k = key(Math.floor(cx / CELL), Math.floor(cz / CELL));
+    let cell = grid.get(k);
+    if (!cell) grid.set(k, (cell = []));
+    slots.push([cell, cell.length]);
+    cell.push(cx, cz, half, -1, tx, tz, 0.2, 0);
+  });
+  ROAD_SAMPLES.push({ sm: sm.map(([x, z], n) => [x, z]), slots });
+}
+
+/**
  * Distance from (x, z) to the edge of the nearest road (negative = on the road).
  * Exact up to about 16 units; anything further returns at least that.
  */
@@ -111,11 +154,16 @@ export function distToRoad(x, z) {
   return nearestRoad(x, z).edge;
 }
 
+/** Like distToRoad, but ignoring the railway: for driving, where ballast is rough ground. */
+export function distToRoadOnly(x, z) {
+  return nearestRoad(x, z, true).edge;
+}
+
 /**
  * The nearest road: distance to its edge, the road, and its surface height level with this
  * point (taken from the centreline, so a road is level from edge to edge).
  */
-export function nearestRoad(x, z) {
+export function nearestRoad(x, z, roadsOnly = false) {
   const ci = Math.floor(x / CELL), cj = Math.floor(z / CELL);
   let best = 99, bc = null, bk = 0;
   for (let i = ci - 1; i <= ci + 1; i++)
@@ -123,13 +171,14 @@ export function nearestRoad(x, z) {
       const cell = grid.get(key(i, j));
       if (!cell) continue;
       for (let k = 0; k < cell.length; k += STRIDE) {
+        if (roadsOnly && cell[k + 3] < 0) continue;
         const d = Math.hypot(cell[k] - x, cell[k + 1] - z) - cell[k + 2];
         if (d < best) { best = d; bc = cell; bk = k; }
       }
     }
   if (!bc) return { edge: best, road: null, level: 0 };
   const along = (x - bc[bk]) * bc[bk + 4] + (z - bc[bk + 1]) * bc[bk + 5];
-  return { edge: best, road: ROADS[bc[bk + 3]], level: bc[bk + 6] + bc[bk + 7] * along };
+  return { edge: best, road: ROADS[bc[bk + 3]] ?? null, rail: bc[bk + 3] < 0, level: bc[bk + 6] + bc[bk + 7] * along };
 }
 
 /**

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CARS, ALL_CARS, COLORS, LANDMARKS, ROADS, WORLD, BOUNDS, TERRAIN, SURF, heightAt, distToRoad, inBeach, spawnPoint, setTerrain, setElevation, ELEV } from '/shared/world.js';
+import { CARS, ALL_CARS, COLORS, LANDMARKS, ROADS, WORLD, BOUNDS, TERRAIN, SURF, heightAt, distToRoad, inBeach, spawnPoint, setTerrain, setElevation, ELEV, distToRoadOnly, RAILWAY } from '/shared/world.js';
 import { makeCar, makeLabel, loadCarModels } from './cars.js';
 import { buildWorld } from './scene.js';
 import { makeKeeper } from './shops.js';
@@ -595,7 +595,7 @@ function drive(dt) {
   const s = me.spec;
   const thr = (input.up ? 1 : 0) - (input.down ? 1 : 0);
   const steer = (input.left ? 1 : 0) - (input.right ? 1 : 0);
-  const offroad = distToRoad(me.x, me.z) > 0.6 && !inBeach(me.x, me.z); // the drive-in beach is hard sand
+  const offroad = distToRoadOnly(me.x, me.z) > 0.6 && !inBeach(me.x, me.z); // the drive-in beach is hard sand; ballast is not
   const wet = Math.min(1, depthAt(me.x, me.z) / WADE_CAR);                // 0 dry .. 1 as deep as a car can go
   const max = s.maxSpeed * (offroad ? s.offroad : 1) * (1 - 0.7 * wet) * (performance.now() < me.boostUntil ? 1.15 : 1); // chai boost
 
@@ -631,7 +631,7 @@ function drive(dt) {
     const d = Math.hypot(dx, dz);
     if (d < min && d > 0.001) { x = c.x + (dx / d) * min; z = c.z + (dz / d) * min; me.speed *= 0.6; }
   }
-  for (const v of traffic.vehicles) {
+  for (const v of [...traffic.vehicles, ...world.trains]) {
     const dx = x - v.x, dz = z - v.z, min = v.r + 1.2, d = Math.hypot(dx, dz);
     if (d < min && d > 0.001) { x = v.x + (dx / d) * min; z = v.z + (dz / d) * min; me.speed *= 0.5; }
   }
@@ -658,7 +658,7 @@ function walk(dt) {
     const dx = x - c.x, dz = z - c.z, min = c.r + 0.45, d = Math.hypot(dx, dz);
     if (d < min && d > 0.001) { x = c.x + (dx / d) * min; z = c.z + (dz / d) * min; }
   }
-  for (const v of traffic.vehicles) {
+  for (const v of [...traffic.vehicles, ...world.trains]) {
     const dx = x - v.x, dz = z - v.z, min = v.r + 0.4, d = Math.hypot(dx, dz);
     if (d < min && d > 0.001) { x = v.x + (dx / d) * min; z = v.z + (dz / d) * min; }
   }
@@ -733,6 +733,15 @@ mapBase.height = Math.round((BOUNDS.z1 - BOUNDS.z0) * MK);
       c.stroke();
     });
   }
+  // the railway: a dark line with white ticks, as on printed maps
+  const rl = RAILWAY.line;
+  for (const [col, w, dash] of [['#2b2b2b', 4, []], ['#ffffff', 2, [6, 6]]]) {
+    c.strokeStyle = col; c.lineWidth = w; c.setLineDash(dash);
+    c.beginPath();
+    for (let i = 0; i < rl.length; i += 2) (i ? c.lineTo(bx(rl[i]), bz(rl[i + 1])) : c.moveTo(bx(rl[i]), bz(rl[i + 1])));
+    c.stroke();
+  }
+  c.setLineDash([]);
 }
 let mapRadius = 220; // world units from the centre to the edge of the minimap
 addEventListener('keydown', (e) => {

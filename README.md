@@ -36,6 +36,10 @@ Open the URL in two browser tabs (or share it on your network) to see multiplaye
 
 `python3 scripts/build-elevation.py` regenerates `client/assets/elevation.png`, the real ground heights, from the open [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) on AWS (needs numpy and Pillow; tiles are cached in `data-src/elevation-cache/`). Elevation data: Terrain Tiles, from SRTM (NASA) and other public sources. `shared/world.js` turns the heights into terrain and road levels when the game loads (`setElevation`, `heightAt`).
 
+## The railway
+
+`python3 scripts/build-rail.py --fetch` downloads the Mangalore–Shoranur line, Kannur station and the Thavakkara bus stand from the OpenStreetMap API (two requests), saves them to `data-src/kannur-osm-rail.json` and writes `shared/rail-data.js`; without `--fetch` it rebuilds from the saved file. `client/js/railway.js` draws the double track, bridges, overhead line, level crossings (barriers lower for trains), Kannur station (platforms 1 and 2/3, blue footbridge, yellow name boards) and the bus terminal (curved steel roof on terracotta columns between orange-and-cream blocks), modelled on photos on Wikimedia Commons. Two trains run each way and stop at Kannur; like the road traffic, they run off the clock so every player sees the same trains.
+
 ## How it is built
 
 | Path | What it does |

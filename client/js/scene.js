@@ -7,6 +7,7 @@ import {
 import { makeLabel } from './cars.js';
 import { coconutPalm, arecaPalm, palmMaterial, lodInstances } from './palms.js';
 import { SHOP_TYPES, KEEPERS, makeKeeper } from './shops.js';
+import { buildRailway } from './railway.js';
 
 const L = (color, o = {}) => new THREE.MeshLambertMaterial({ color, flatShading: true, ...o });
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -435,7 +436,12 @@ export function buildWorld(scene) {
     addKeeper(c.bx + Math.sin(kr) * 6.2 + Math.cos(kr) * 2.5, c.bz + Math.cos(kr) * 6.2 - Math.sin(kr) * 2.5, kr, SHOP_TYPES[0]);
   }
 
-  // ----- Kannur town: railway station, bus terminal, Gandhi Circle, Arakkal Museum -----
+  // ----- the railway, Kannur station and the Thavakkara bus terminal (railway.js) -----
+  const rail = buildRailway(scene, rng);
+  colliders.push(...rail.colliders);
+  animated.push(() => rail.update(Date.now() / 1000));
+
+  // ----- Kannur town: Gandhi Circle, Arakkal Museum -----
   {
     const cream = L(0xf1e6c8), red = L(0xb5482e), white = L(0xf6f4ee), dark = L(0x26303a), wood = L(0x7a5230), grey = L(0xcfd2d6), slab = L(0xd9d5cc);
     const put = (lm, build, cols) => {
@@ -447,31 +453,6 @@ export function buildWorld(scene) {
       const T = local(lm.bx, lm.bz, lm.rot);
       for (const [x, z, r] of cols) { const [cx, cz] = T(x, z); colliders.push({ x: cx, z: cz, r }); }
     };
-    // railway station: long tiled building, portico, yellow name board, a train at the platform behind
-    put(lmk('station'), (g) => {
-      g.add(box(26, 4.4, 6, cream, 0, 2.2, 0), hip(28, 2.6, 8, red, 0, 4.4, 0));
-      g.add(box(7, 0.3, 3.4, slab, 0, 3.6, 4.4));
-      for (const x of [-3, 3]) g.add(box(0.4, 3.6, 0.4, white, x, 1.8, 5.8));
-      for (let i = -5; i <= 5; i++) if (Math.abs(i) > 1) g.add(box(1.2, 1.6, 0.1, dark, i * 2.2, 2.4, 3.02));
-      g.add(box(2.6, 2.6, 0.1, dark, 0, 1.3, 3.02));
-      const board = makeLabel('കണ്ണൂർ · KANNUR', { bg: '#f9c80e', fg: '#1c1c1c', height: 1.3 });
-      board.position.set(0, 8.2, 3);
-      g.add(board);
-      g.add(box(30, 0.5, 3, grey, 0, 0.25, -5), box(30, 0.15, 3.6, L(0x8a8f96), 0, 4.2, -5));
-      for (let i = -3; i <= 3; i++) g.add(box(0.2, 4, 0.2, grey, i * 4.5, 2, -4));
-      for (let i = -1; i <= 1; i++) { g.add(box(9, 2.6, 2.6, L(i ? 0x2a5d8f : 0xc0392b), i * 9.4, 2.1, -8.4), box(8.4, 0.7, 0.05, dark, i * 9.4, 2.6, -7.08)); }
-    }, [[-9, 0, 5], [0, 0, 5], [9, 0, 5], [-9, -8, 3.5], [0, -8, 3.5], [9, -8, 3.5]]);
-    // Thavakkara bus terminal: tall complex over open bus bays, parked buses
-    put(lmk('busstand'), (g) => {
-      for (const x of [-9, -3, 3, 9]) for (const z of [-5, 5]) g.add(box(0.8, 4.4, 0.8, grey, x, 2.2, z));
-      g.add(box(22, 12, 13, L(0xe8e3d6), 0, 10.4, 0), box(22.6, 0.4, 13.6, slab, 0, 16.6, 0));
-      for (let f = 0; f < 4; f++) for (let i = -4; i <= 4; i++) g.add(box(1.6, 1.4, 0.1, dark, i * 2.3, 6.2 + f * 2.8, 6.52));
-      g.add(box(22, 1.2, 0.3, L(0x1565c0), 0, 4.9, 6.6));
-      const sign = makeLabel('Thavakkara Bus Terminal · താവക്കര', { bg: '#1565c0', height: 1.3 });
-      sign.position.set(0, 18.4, 6);
-      g.add(sign);
-      for (const [x, c] of [[-6, 0xc0392b], [0, 0x1e8449], [6, 0x2471a3]]) g.add(box(2.5, 2.7, 9, L(c), x, 1.75, 0), box(2.54, 0.8, 8, dark, x, 2.3, 0));
-    }, [[-7.5, 0, 6.5], [0, 0, 6.5], [7.5, 0, 6.5]]);
     // Gandhi Circle at Caltex junction: statue on a round plinth
     put(lmk('caltex'), (g) => {
       g.add(cyl(3, 3.2, 0.6, L(0x6aa84f), 0, 0.3, 0, 14), cyl(0.9, 1.1, 2.4, white, 0, 1.8, 0, 8));
@@ -493,7 +474,8 @@ export function buildWorld(scene) {
   }
 
   const inTownCentre = (x, z) => Math.hypot(x + 500, z - 170) < 110;
-  const nearLandmark = (x, z, pad) => LANDMARKS.some((m) => Math.hypot((m.bx ?? m.x) - x, (m.bz ?? m.z) - z) < pad);
+  const nearLandmark = (x, z, pad) => LANDMARKS.some((m) => Math.hypot((m.bx ?? m.x) - x, (m.bz ?? m.z) - z) < pad)
+    || rail.reserved.some(([rx, rz, r]) => Math.hypot(rx - x, rz - z) < r);
 
   // ----- building kit: many kinds of houses, shops and places of worship -----
   const PAL = {
@@ -801,7 +783,7 @@ export function buildWorld(scene) {
   // shopkeepers wave now and then
   animated.push((t) => { for (let i = 0; i < shops.length; i++) shops[i].mesh.userData.arm.rotation.z = Math.max(0, Math.sin(t * 1.5 + i * 2)) * 2.2; });
 
-  return { colliders, beacons, shops, update: (t, camera) => animated.forEach((f) => f(t, camera)) };
+  return { colliders, beacons, shops, trains: rail.trainBodies, update: (t, camera) => animated.forEach((f) => f(t, camera)) };
 }
 
 export { roadY };

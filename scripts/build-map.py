@@ -397,10 +397,11 @@ def road_mid(name):
     pts = [p for r in roads if r['n'] == name for p in r['p']]
     return centroid(pts)
 
-# coordinates from the stations' Wikipedia infoboxes
-sx_, sz_ = ll(11.8689, 75.3555)
+# OpenStreetMap: the station building and the Thavakkara bus stand yard. (Wikipedia's infobox puts
+# the station about 1.3 km west, on empty ground; OSM has the building, tracks and platforms.)
+sx_, sz_ = ll(11.87178, 75.36756)
 town_place('station', 'Kannur Railway Station', 'കണ്ണൂർ റെയിൽവേ സ്റ്റേഷൻ', sx_, sz_, r=22, min_road=10, max_road=30)
-tx_, tz_ = ll(11.86750, 75.37056)
+tx_, tz_ = ll(11.86656, 75.37143)
 town_place('busstand', 'Thavakkara Bus Terminal', 'താവക്കര ബസ് ടെർമിനൽ', tx_, tz_, r=22, min_road=10, max_road=30)
 cx_, cz_ = ll(11.8755571, 75.3747994)
 town_place('caltex', 'Gandhi Circle (Caltex Junction)', 'ഗാന്ധി സർക്കിൾ', cx_, cz_, r=20, min_road=7, max_road=14)
