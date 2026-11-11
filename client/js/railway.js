@@ -234,30 +234,45 @@ export function buildRailway(scene, rng) {
     }
     for (const k of [-1, 0, 1]) { const [cx, cz] = f.world(X(bc), bz + k * blen / 3); colliders.push({ x: cx, z: cz, r: bd / 2 + 0.5 }); }
 
-    // blue steel footbridge across the tracks, with stair towers on platform 1 and the island
+    // blue steel footbridge: from the road on the west side, over both tracks, to the station building,
+    // with stairs down to the roadside, the island platform and platform 1
     {
-      const z = SL.footbridgeA - a0, from = SL.island[0] + 0.5, to = SL.building[0] + 0.5, len = to - from, mid = (from + to) / 2;
-      batch.add(new THREE.BoxGeometry(len, 0.35, 2.6), mats.fob, f.at(X(mid), 7.2, z));
-      batch.add(new THREE.BoxGeometry(len, 0.25, 2.8), mats.fob, f.at(X(mid), 9.6, z));
-      for (const side of [-1.35, 1.35]) {
-        batch.add(new THREE.BoxGeometry(len, 0.18, 0.18), mats.fobDark, f.at(X(mid), 7.4, z + side));
-        batch.add(new THREE.BoxGeometry(len, 0.18, 0.18), mats.fobDark, f.at(X(mid), 9.45, z + side));
+      const z = SL.footbridgeA - a0, west = SL.westTrack - 3.2, east = SL.building[0] + 0.4;
+      const len = east - west, mid = (west + east) / 2, deckY = 7.2, half = 1.3;
+      batch.add(new THREE.BoxGeometry(len, 0.35, 2.6), mats.fob, f.at(X(mid), deckY, z));          // deck
+      batch.add(new THREE.BoxGeometry(len, 0.25, 2.8), mats.fob, f.at(X(mid), deckY + 2.4, z));    // roof
+      for (const side of [-half - 0.05, half + 0.05]) {                                             // truss sides
+        batch.add(new THREE.BoxGeometry(len, 0.18, 0.18), mats.fobDark, f.at(X(mid), deckY + 0.2, z + side));
+        batch.add(new THREE.BoxGeometry(len, 0.18, 0.18), mats.fobDark, f.at(X(mid), deckY + 2.25, z + side));
         for (let k = 0; k <= Math.floor(len / 1.6); k++) {
-          const o = from + k * 1.6;
-          batch.add(new THREE.BoxGeometry(0.12, 2.1, 0.12), mats.fob, f.at(X(o), 8.4, z + side));
-          if (k % 2 === 0) batch.add(new THREE.BoxGeometry(0.1, 2.6, 0.1), mats.fobDark, f.at(X(o + 0.8), 8.4, z + side).multiply(new THREE.Matrix4().makeRotationZ(0.62)));
+          const o = west + k * 1.6;
+          batch.add(new THREE.BoxGeometry(0.12, 2.1, 0.12), mats.fob, f.at(X(o), deckY + 1.2, z + side));
+          if (k % 2 === 0 && o + 1.6 <= east) batch.add(new THREE.BoxGeometry(0.1, 2.6, 0.1), mats.fobDark, f.at(X(o + 0.8), deckY + 1.2, z + side).multiply(new THREE.Matrix4().makeRotationZ(0.62)));
         }
       }
-      for (const o of [(SL.island[0] + SL.island[1]) / 2, (SL.platform1[0] + SL.platform1[1]) / 2]) {
-        batch.add(new THREE.BoxGeometry(2.4, 7.2, 2.4), mats.fob, f.at(X(o), 4.5, z + 2.6));                 // stair tower
-        batch.add(new THREE.BoxGeometry(2.0, 6.0, 2.0), mats.glass, f.at(X(o), 4.2, z + 2.6));
-        batch.add(new THREE.BoxGeometry(2.8, 0.3, 2.8), mats.fobDark, f.at(X(o), 8.2, z + 2.6));
-        const [cx, cz] = f.world(X(o), z + 2.6);
-        colliders.push({ x: cx, z: cz, r: 1.5 });
-      }
-      for (const o of [from, to]) batch.add(new THREE.BoxGeometry(0.6, 7, 0.6), mats.fob, f.at(X(o), 3.6, z));
+      // a straight flight leaving the deck sideways (along the line) and stepping down to `bottom`
+      const stairs = (o, bottom) => {
+        const rise = 0.36, tread = 0.5, n = Math.ceil((deckY - bottom) / rise), run = n * tread, w = 1.9;
+        const z0 = z + half + 1.2;                                                                    // landing beside the deck
+        batch.add(new THREE.BoxGeometry(w + 0.4, 0.3, 2.4), mats.fob, f.at(X(o), deckY, z + half + 0.6));
+        for (let k = 0; k < n; k++) {
+          const top = deckY - k * rise;
+          batch.add(new THREE.BoxGeometry(w, 0.14, tread + 0.04), mats.concrete, f.at(X(o), top - rise, z0 + k * tread + tread / 2));
+        }
+        const slope = Math.atan2(deckY - bottom, run), hyp = Math.hypot(run, deckY - bottom);
+        for (const sd of [-w / 2 - 0.08, w / 2 + 0.08]) {
+          const m = f.at(X(o) + sd, (deckY + bottom) / 2 - 0.2, z0 + run / 2).multiply(new THREE.Matrix4().makeRotationX(slope));
+          batch.add(new THREE.BoxGeometry(0.16, 0.5, hyp), mats.fob, m);                                // stringer
+          batch.add(new THREE.BoxGeometry(0.08, 0.08, hyp), mats.fobDark, m.clone().multiply(new THREE.Matrix4().makeTranslation(0, 1.1, 0))); // handrail
+        }
+        batch.add(new THREE.BoxGeometry(0.4, deckY, 0.4), mats.fob, f.at(X(o), deckY / 2, z + half + 0.6)); // column under the landing
+        const [cx, cz] = f.world(X(o), z0 + run * 0.6);
+        colliders.push({ x: cx, z: cz, r: 0.6 });
+      };
+      stairs(west + 0.2, 0);                                                       // down to the west road
+      stairs((SL.island[0] + SL.island[1]) / 2, 0.9);                              // island platform 2 / 3
+      stairs((SL.platform1[0] + SL.platform1[1]) / 2, 0.9);                        // platform 1
     }
-
     // keep houses and palms off the station's land
     for (const k of [-24, 0, 24]) { const [cx, cz] = f.world(X(14), k); reserved.push([cx, cz, 14]); }
   }
