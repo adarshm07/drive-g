@@ -397,9 +397,10 @@ def road_mid(name):
     pts = [p for r in roads if r['n'] == name for p in r['p']]
     return centroid(pts)
 
-sx_, sz_ = road_mid('Station Road')
-town_place('station', 'Kannur Railway Station', 'കണ്ണൂർ റെയിൽവേ സ്റ്റേഷൻ', sx_ - 14, sz_ - 6, r=22, min_road=10, max_road=30)
-tx_, tz_ = road_mid('thavakarra road')
+# coordinates from the stations' Wikipedia infoboxes
+sx_, sz_ = ll(11.8689, 75.3555)
+town_place('station', 'Kannur Railway Station', 'കണ്ണൂർ റെയിൽവേ സ്റ്റേഷൻ', sx_, sz_, r=22, min_road=10, max_road=30)
+tx_, tz_ = ll(11.86750, 75.37056)
 town_place('busstand', 'Thavakkara Bus Terminal', 'താവക്കര ബസ് ടെർമിനൽ', tx_, tz_, r=22, min_road=10, max_road=30)
 cx_, cz_ = ll(11.8755571, 75.3747994)
 town_place('caltex', 'Gandhi Circle (Caltex Junction)', 'ഗാന്ധി സർക്കിൾ', cx_, cz_, r=20, min_road=7, max_road=14)
