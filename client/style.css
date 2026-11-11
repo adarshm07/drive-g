@@ -110,7 +110,7 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--gold); outl
   #players { display: none; }
   .pad { pointer-events: auto; position: absolute; bottom: 22px; display: flex; gap: 12px; }
   .pad.left { left: 18px; }
-  .pad.rightpad { right: 18px; }
+  .pad.rightpad { right: 18px; display: grid; grid-template-columns: repeat(2, 68px); }
   .pad button { width: 68px; height: 68px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.8); background: rgba(15, 61, 46, 0.6); color: #fff; font-size: 24px; touch-action: none; user-select: none; -webkit-user-select: none; }
   .pad button:active { background: var(--gold); }
 }
@@ -143,8 +143,8 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--gold); outl
 #chatLog li b { color: var(--gold); }
 #chatInput { width: 100%; padding: 7px 10px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.5); background: rgba(0, 0, 0, 0.45); color: #fff; font-size: 13px; }
 #chatInput::placeholder { color: rgba(255, 255, 255, 0.75); }
-@media (pointer: coarse) { #chat { bottom: 110px; left: 50%; transform: translateX(-50%); } #talkPrompt, #dialog { bottom: 170px; } }
+@media (pointer: coarse) { #chat { bottom: 186px; left: 50%; transform: translateX(-50%); } #talkPrompt, #dialog { bottom: 238px; } }
 
 #carPrompt { pointer-events: auto; position: absolute; left: 50%; bottom: 140px; transform: translateX(-50%); background: var(--cloth); color: var(--green); border: 0; border-radius: 4px; padding: 8px 14px; font-weight: 700; font-size: 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3); }
 #carPrompt[hidden] { display: none; }
-@media (pointer: coarse) { #carPrompt { bottom: 214px; } }
+@media (pointer: coarse) { #carPrompt { bottom: 284px; } }

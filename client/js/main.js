@@ -850,10 +850,19 @@ function tripStart(lm) {
       if (Math.abs(toward) < 0.55) continue; // this stretch runs past the beach, not towards it
       if (toward < 0) { tx = -tx; tz = -tz; }
       const score = d * (2 - Math.abs(toward));
-      if (score < bd) { bd = score; best = { x, z, rot: Math.atan2(tx, tz) }; }
+      if (score >= bd || !clearBehind(x, z, tx / tl, tz / tl)) continue;
+      bd = score; best = { x, z, rot: Math.atan2(tx, tz) };
     }
   }
   return best ?? { x: lm.x + lm.r + 20, z: lm.z, rot: -Math.PI / 2 };
+}
+// Nothing solid on the car's spot or between it and the chase camera behind it.
+function clearBehind(x, z, fx, fz) {
+  for (let k = 0; k <= 13; k += 1.5) {
+    const px = x - fx * k, pz = z - fz * k;
+    for (const c of nearColliders(px, pz)) if (Math.hypot(c.x - px, c.z - pz) < c.r + 1.6) return false;
+  }
+  return true;
 }
 function showTrips(open) {
   $('trips').hidden = !open;
