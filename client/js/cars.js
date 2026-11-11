@@ -191,7 +191,7 @@ export function makeLabel(text, { bg = 'rgba(15,61,46,0.85)', fg = '#fff', heigh
   ctx.fillText(text, 20, 34);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true }));
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true, toneMapped: false }));
   sprite.scale.set((c.width / c.height) * height, height, 1);
   return sprite;
 }

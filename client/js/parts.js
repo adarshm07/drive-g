@@ -1,10 +1,14 @@
 // Shared low-poly parts for the player cars: materials, boxes, tyres and wheels.
 import * as THREE from 'three';
+import { ENV } from './look.js';
 
 export const L = (color, o = {}) => new THREE.MeshLambertMaterial({ color, flatShading: true, ...o });
-export const P = (color, o = {}) => new THREE.MeshPhongMaterial({ color, specular: 0x555555, shininess: 70, ...o });
-export const TYRE = L(0x1b1b1b), GLASS = L(0x1d2b36), DARK = L(0x24262b), CHROME = L(0xb9bec4);
-export const HEAD = new THREE.MeshBasicMaterial({ color: 0xfff3c0 }), TAIL = new THREE.MeshBasicMaterial({ color: 0xd32f2f });
+// shiny paint: picks up the sky reflection (set up in look.js before any car is built)
+export const P = (color, o = {}) => new THREE.MeshPhongMaterial({ color, specular: 0x555555, shininess: 70, envMap: ENV.map, reflectivity: 0.18, combine: THREE.MixOperation, ...o });
+// lamps are brighter than white, so they stay bright through tone mapping and glow on High
+export const lamp = (color, k = 2.2) => { const m = new THREE.MeshBasicMaterial({ color }); m.color.multiplyScalar(k); return m; };
+export const TYRE = L(0x1b1b1b), GLASS = L(0x1d2b36, { name: 'glass' }), DARK = L(0x24262b), CHROME = L(0xb9bec4);
+export const HEAD = lamp(0xfff3c0), TAIL = lamp(0xd32f2f, 1.8);
 export const TYRE_SMOOTH = new THREE.MeshLambertMaterial({ color: 0x1a1a1a, side: THREE.DoubleSide });
 
 export function box(w, h, d, m, x, y, z) {

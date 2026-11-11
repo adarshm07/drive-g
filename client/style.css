@@ -148,3 +148,4 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--gold); outl
 #carPrompt { pointer-events: auto; position: absolute; left: 50%; bottom: 140px; transform: translateX(-50%); background: var(--cloth); color: var(--green); border: 0; border-radius: 4px; padding: 8px 14px; font-weight: 700; font-size: 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3); }
 #carPrompt[hidden] { display: none; }
 @media (pointer: coarse) { #carPrompt { bottom: 284px; } }
+.hint { font-size: 12px; color: var(--muted); margin: -2px 0 10px; line-height: 1.4; }

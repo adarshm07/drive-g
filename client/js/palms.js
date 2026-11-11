@@ -167,6 +167,7 @@ export function lodInstances(scene, near, far, material, matrices, { range = 150
   const hi = new THREE.InstancedMesh(near, material, matrices.length);
   const lo = new THREE.InstancedMesh(far, material, matrices.length);
   hi.frustumCulled = lo.frustumCulled = false; // the visible set changes; cheaper than refitting bounds
+  lo.userData.shadow = 'receive';               // far palms are outside the shadow area anyway
   hi.count = 0;
   matrices.forEach((m, i) => lo.setMatrixAt(i, m));
   scene.add(hi, lo);

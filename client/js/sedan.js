@@ -2,13 +2,13 @@
 // The body is a side profile extruded across the car with small bevels, so it has flat sides and
 // crisp edges; the cabin narrows towards the roof. Front of the car points to +z, ground is y = 0.
 import * as THREE from 'three';
-import { P, DARK, CHROME, HEAD, TAIL, TYRE_SMOOTH, box, wheel } from './parts.js';
+import { P, DARK, CHROME, HEAD, TAIL, TYRE_SMOOTH, box, wheel, lamp } from './parts.js';
 
 const LEN = 4.6, WIDTH = 1.82, WHEEL_R = 0.34, AXLE = 1.42, TRACK = 0.78;
-const GLASS = P(0x16212b, { shininess: 110 });
+const GLASS = P(0x16212b, { shininess: 110, name: 'glass', reflectivity: 0.45 });
 const ALLOY = P(0xc9ced4, { shininess: 90 });
 const ALLOY_DARK = P(0x3a3e44, { shininess: 40 });
-const AMBER = new THREE.MeshBasicMaterial({ color: 0xffa726 }), REVERSE = new THREE.MeshBasicMaterial({ color: 0xf5f5f5 });
+const AMBER = lamp(0xffa726, 1.8), REVERSE = lamp(0xf5f5f5, 1.4);
 
 // Side profile of the lower body (s along the car, y up), with the two wheel arches cut out.
 function hullShape() {

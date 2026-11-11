@@ -5,6 +5,8 @@ import { buildWorld } from './scene.js';
 import { makeKeeper } from './shops.js';
 import { buildTraffic } from './traffic.js';
 import { createWaterFx } from './splash.js';
+import { setupLook, reflective } from './look.js';
+import { QUALITY_ID, QUALITY_LEVELS, setQuality, TIME_ID, TIME_LEVELS, setTime } from './quality.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -14,9 +16,9 @@ const store = {
 
 // ---------- renderer and world ----------
 const renderer = new THREE.WebGLRenderer({ canvas: $('c'), antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, 1, 0.5, 900);
+const view = setupLook(renderer, scene, camera); // sky, sun, shadows, tone mapping, glow
 const waterFx = createWaterFx(scene, WORLD.water);
 
 // The terrain (coastline, rivers, beaches) is a small raster built from OpenStreetMap data, and the
@@ -50,6 +52,16 @@ let terrainPx; // kept for drawing the minimap
 }
 const world = buildWorld(scene);
 const traffic = buildTraffic(scene); // buses, lorries, cars and autos, the same for every player
+// shadows on everything, and the sky reflected in glass; new cars and people are picked up as they appear
+function finishLook() {
+  view.applyShadows();
+  scene.traverse((o) => {
+    const m = o.material;
+    if (m && !Array.isArray(m) && m.name === 'glass' && !m.envMap) reflective(m, 0.3);
+  });
+}
+finishLook();
+setInterval(finishLook, 2000);
 await loadCarModels(); // real 3D car models where a file exists; box cars otherwise
 
 // Colliders in a coarse grid so the car only checks the ones nearby.
@@ -68,7 +80,7 @@ function* nearColliders(x, z) {
   }
 }
 function resize() {
-  renderer.setSize(innerWidth, innerHeight, false);
+  view.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
 }
@@ -164,6 +176,21 @@ function renderWho() {
     $('account').append(p, out);
   }
 }
+
+// graphics quality picker in the Garage
+{
+  for (const [row, levels, current, set] of [[$('quality'), QUALITY_LEVELS, QUALITY_ID, setQuality], [$('timeOfDay'), TIME_LEVELS, TIME_ID, setTime]]) {
+    for (const q of levels) {
+      const b = document.createElement('button');
+      b.textContent = q.name;
+      b.className = q.id === current ? 'on' : '';
+      b.setAttribute('aria-pressed', String(q.id === current));
+      b.onclick = () => set(q.id);
+      row.append(b);
+    }
+  }
+}
+const groundAt = (x, z) => heightAt(x, z);
 
 function renderGarage() {
   $('cars').innerHTML = '';
@@ -1023,12 +1050,14 @@ function frame() {
     first = true;
     place(me.group, me.x, me.z, me.rot, 0, dt);
     const a = t * 0.25 + 2.2;
-    camera.position.set(me.x + Math.sin(a) * 10, 4.2, me.z + Math.cos(a) * 10);
-    camera.lookAt(me.x, 1, me.z);
+    const cx = me.x + Math.sin(a) * 10, cz = me.z + Math.cos(a) * 10, gy = me.group.position.y;
+    camera.position.set(cx, Math.max(gy + 4.2, heightAt(cx, cz) + 1.6), cz); // above the ground, on hills too
+    camera.lookAt(me.x, gy + 1, me.z);
   }
   const co = window.__kd?.camOverride; // debugging aid: { pos: [x, y, z], look: [x, y, z] }
   if (co) { camera.position.set(...co.pos); camera.lookAt(...co.look); }
-  renderer.render(scene, camera);
+  view.follow(me.x, groundAt(me.x, me.z), me.z);
+  view.render();
   requestAnimationFrame(frame);
 }
 

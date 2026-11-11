@@ -8,6 +8,8 @@ import { makeLabel } from './cars.js';
 import { coconutPalm, arecaPalm, palmMaterial, lodInstances } from './palms.js';
 import { SHOP_TYPES, KEEPERS, makeKeeper } from './shops.js';
 import { buildRailway } from './railway.js';
+import { makeWater } from './water.js';
+import { QUALITY } from './quality.js';
 
 const L = (color, o = {}) => new THREE.MeshLambertMaterial({ color, flatShading: true, ...o });
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -57,9 +59,17 @@ class Statics {
       this.byMat.get(m.material).push(g);
     });
   }
+  // merged per material and per 240-unit tile, so whole tiles off screen are skipped
   flush(scene) {
     for (const [mat, list] of this.byMat) {
-      for (let i = 0; i < list.length; i += 4000) scene.add(new THREE.Mesh(mergeGeometries(list.slice(i, i + 4000)), mat));
+      const tiles = new Map();
+      for (const g of list) {
+        g.computeBoundingSphere();
+        const c = g.boundingSphere.center, k = Math.floor(c.x / 240) * 1000 + Math.floor(c.z / 240);
+        if (!tiles.has(k)) tiles.set(k, []);
+        tiles.get(k).push(g);
+      }
+      for (const group of tiles.values()) for (let i = 0; i < group.length; i += 4000) scene.add(new THREE.Mesh(mergeGeometries(group.slice(i, i + 4000)), mat));
     }
     this.byMat.clear();
   }
@@ -77,20 +87,72 @@ function vnoise(x, z, scale) {
 const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const townness = (x, z) => 1 - sstep(90, 200, Math.hypot(x + 500, z - 170));
 
+// Fine grain for the ground: a small tiling noise texture that the terrain colours are multiplied by,
+// so grass, laterite and sand do not look like plastic up close. Light (0.84..1) so colours hold.
+function groundDetail(repeatX, repeatZ) {
+  const n = 128, c = document.createElement('canvas');
+  c.width = c.height = n;
+  const ctx = c.getContext('2d'), img = ctx.createImageData(n, n), r = rng32(9917);
+  const v = new Float32Array(n * n);
+  for (let i = 0; i < v.length; i++) v[i] = r();
+  for (let pass = 0; pass < 2; pass++) {               // soften into small clumps, wrapping at the edges
+    const o = Float32Array.from(v);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      let s = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) s += o[((y + dy + n) % n) * n + ((x + dx + n) % n)];
+      v[y * n + x] = s / 9 * 0.7 + r() * 0.3;
+    }
+  }
+  for (let i = 0; i < v.length; i++) {
+    const g = Math.round(255 * (0.84 + 0.16 * Math.min(1, Math.max(0, (v[i] - 0.3) * 2.5))));
+    img.data.set([g, g, g, 255], i * 4);
+  }
+  ctx.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(repeatX, repeatZ);
+  t.anisotropy = 4;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+// Contact shading: darken the ground a little around the base of buildings, trees and walls, as
+// the sky light would be blocked there. Done once, on the terrain's vertex colours.
+function groundContactShade(geo, colliders) {
+  if (!geo) return;
+  const grid = new Map(), CELL = 10, key = (i, j) => i * 100003 + j;
+  for (const c of colliders) {
+    const k = key(Math.floor(c.x / CELL), Math.floor(c.z / CELL));
+    if (!grid.has(k)) grid.set(k, []);
+    grid.get(k).push(c);
+  }
+  const p = geo.attributes.position, col = geo.attributes.color;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), z = p.getZ(i), ci = Math.floor(x / CELL), cj = Math.floor(z / CELL);
+    let occ = 0;
+    for (let a = ci - 1; a <= ci + 1; a++) for (let b = cj - 1; b <= cj + 1; b++) {
+      const list = grid.get(key(a, b));
+      if (list) for (const c of list) {
+        const d = Math.hypot(c.x - x, c.z - z) - c.r;
+        if (d < 3.5) occ += (1 - Math.max(0, d) / 3.5) * Math.min(1, c.r / 2 + 0.25);
+      }
+    }
+    if (!occ) continue;
+    const k = 1 - 0.32 * Math.min(1, occ);
+    col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k);
+  }
+  col.needsUpdate = true;
+}
+
 export function buildWorld(scene) {
   const rng = rng32(20261110);
   const colliders = [];
   const animated = [];
   const statics = new Statics();
+  let terrainGeo = null; // kept for the contact shading at the end
   const shops = [];   // interactive shops: { x, z, type, keeper, mesh }
   const B = BOUNDS;
-  const sky = 0xbfe6f2;
-  scene.background = new THREE.Color(sky);
-  scene.fog = new THREE.Fog(sky, 160, 700);
-  scene.add(new THREE.HemisphereLight(0xe6f6ff, 0x6f9455, 1.25));
-  const sun = new THREE.DirectionalLight(0xfff1d0, 1.7);
-  sun.position.set(-120, 160, 80);
-  scene.add(sun);
+  // sky, sun, fog and shadows are set up in look.js
 
   // ----- terrain: heights and colours come from the OpenStreetMap-derived raster -----
   {
@@ -125,12 +187,12 @@ export function buildWorld(scene) {
     }
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.computeVertexNormals();
-    scene.add(new THREE.Mesh(geo, L(0xffffff, { vertexColors: true })));
+    const ground = new THREE.Mesh(geo, L(0xffffff, { vertexColors: true, map: QUALITY.groundDetail ? groundDetail(W / 7, D / 7) : null }));
+    ground.userData.shadow = 'receive';
+    scene.add(ground);
+    terrainGeo = geo;
 
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(W + 3000, D + 3000).rotateX(-Math.PI / 2),
-      new THREE.MeshLambertMaterial({ color: 0x2f93b8, transparent: true, opacity: 0.88 }));
-    water.position.set((B.x0 + B.x1) / 2, WORLD.water, (B.z0 + B.z1) / 2);
-    scene.add(water);
+    scene.add(makeWater());
     // the world beyond the map edge: plain land so the horizon is not a cliff
     const outer = L(0x6aa84f);
     const ring = [[B.x1 + 600, (B.z0 + B.z1) / 2, 1200, D + 2400], [(B.x0 + B.x1) / 2, B.z0 - 600, W, 1200]];
@@ -211,7 +273,9 @@ export function buildWorld(scene) {
       if (col.length) geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
       geo.setIndex(idx);
       geo.computeVertexNormals();
-      scene.add(new THREE.Mesh(geo, mat));
+      const road = new THREE.Mesh(geo, mat);
+      road.userData.shadow = 'receive';
+      scene.add(road);
     };
     const off = (f) => ({ polygonOffset: true, polygonOffsetFactor: f, polygonOffsetUnits: f });
     mk('shoulder', new THREE.MeshLambertMaterial({ vertexColors: true, ...off(-1) }));
@@ -481,7 +545,7 @@ export function buildWorld(scene) {
   const PAL = {
     walls: [0xf5f0e1, 0xf7e7b0, 0xcfe8d0, 0xf4c9c0, 0xc9def0, 0xffffff, 0xf2a7a0, 0x9fd6c2, 0xf6c66a, 0xb7c9f2, 0xe6d3b3, 0xd9b8e8, 0xa8d08d, 0xf0e0d0].map((c) => L(c)),
     tile: [L(0xb5482e), L(0x9c3d27), L(0xc25a36)], tin: [L(0x3f6fa8), L(0x5b8f5b), L(0x8a8f96)],
-    slab: L(0xd9d5cc), dark: L(0x26303a), door: L(0x5b3a1e), wood: L(0x7a5230), white: L(0xf6f4ee), green: L(0x2e7d32), gold: L(0xd4a72c),
+    slab: L(0xd9d5cc), dark: L(0x26303a, { name: 'glass' }), door: L(0x5b3a1e), wood: L(0x7a5230), white: L(0xf6f4ee), green: L(0x2e7d32), gold: L(0xd4a72c),
     shutter: [L(0x8d949c), L(0x4a6fa5), L(0x4f7d5a), L(0x9a5b4a)], sign: [0xc62828, 0x1565c0, 0x2e7d32, 0xef6c00, 0x6a1b9a, 0x00838f, 0xf9a825].map((c) => L(c)),
     tank: L(0x1c1c1c), stone: L(0xb9b1a2),
   };
@@ -673,7 +737,7 @@ export function buildWorld(scene) {
         e.set((rng() - 0.5) * 0.08, rng() * 6.28, (rng() - 0.5) * 0.08);
         return new THREE.Matrix4().compose(V(p.x, p.y - 0.1, p.z), q.setFromEuler(e), V(s, s * (0.9 + rng() * 0.25), s));
       });
-      const lod = lodInstances(scene, coconutPalm(v), coconutPalm(v, true), palmMat, mats);
+      const lod = lodInstances(scene, coconutPalm(v), coconutPalm(v, true), palmMat, mats, { range: QUALITY.palmRange });
       animated.push((t, cam) => cam && lod(cam.position));
     });
 
@@ -714,7 +778,7 @@ export function buildWorld(scene) {
         return new THREE.Matrix4().compose(V(x, heightAt(x, z) - sink, z), q.setFromEuler(e), V(sc, sc * (0.85 + rng() * 0.3), sc));
       });
       if (far) { // a detailed model near the camera, a cheap one further away
-        const lod = lodInstances(scene, geo, far, mat, mats);
+        const lod = lodInstances(scene, geo, far, mat, mats, { range: QUALITY.palmRange });
         animated.push((t, cam) => cam && lod(cam.position));
         return;
       }
@@ -783,6 +847,7 @@ export function buildWorld(scene) {
   // shopkeepers wave now and then
   animated.push((t) => { for (let i = 0; i < shops.length; i++) shops[i].mesh.userData.arm.rotation.z = Math.max(0, Math.sin(t * 1.5 + i * 2)) * 2.2; });
 
+  groundContactShade(terrainGeo, colliders);
   return { colliders, beacons, shops, trains: rail.trainBodies, update: (t, camera) => animated.forEach((f) => f(t, camera)) };
 }
 

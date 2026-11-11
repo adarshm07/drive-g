@@ -26,8 +26,18 @@ class Batch {
     if (!this.byMat.has(mat)) this.byMat.set(mat, []);
     this.byMat.get(mat).push(g);
   }
+  // merged per material and per 240-unit tile, so parts off screen are skipped
   flush(scene) {
-    for (const [mat, list] of this.byMat) for (let i = 0; i < list.length; i += 3000) scene.add(new THREE.Mesh(mergeGeometries(list.slice(i, i + 3000)), mat));
+    for (const [mat, list] of this.byMat) {
+      const tiles = new Map();
+      for (const g of list) {
+        g.computeBoundingSphere();
+        const c = g.boundingSphere.center, k = Math.floor(c.x / 240) * 1000 + Math.floor(c.z / 240);
+        if (!tiles.has(k)) tiles.set(k, []);
+        tiles.get(k).push(g);
+      }
+      for (const group of tiles.values()) for (let i = 0; i < group.length; i += 3000) scene.add(new THREE.Mesh(mergeGeometries(group.slice(i, i + 3000)), mat));
+    }
     this.byMat.clear();
   }
 }
@@ -65,9 +75,9 @@ export function buildRailway(scene, rng) {
     ballast: L(0x8c8478), sleeper: L(0x6f6a64), rail: L(0x5b5550), railTop: L(0xb9b4ad),
     steel: L(0x6b7178), girder: L(0x55606b), concrete: L(0xc9c7c0), platform: L(0xd8d2c4), edge: L(0xf0d24a),
     fob: L(0x2f74c0), fobDark: L(0x1f4f8a), wire: new THREE.MeshBasicMaterial({ color: 0x2b2b2b, side: THREE.DoubleSide }),
-    white: L(0xf4f1ea), cream: L(0xeee3c6), maroon: L(0x8e3b2f), red: L(0xc0392b), glass: L(0x2a3a48),
+    white: L(0xf4f1ea), cream: L(0xeee3c6), maroon: L(0x8e3b2f), red: L(0xc0392b), glass: L(0x2a3a48, { name: 'glass' }),
     roofSheet: L(0x9aa3ab, { side: THREE.DoubleSide }), canopy: L(0x6d8f6e), column: L(0xd2693c), orange: L(0xe8792f),
-    coach: L(0xf2f0ea), coachBand: L(0xf08a24), coachRoof: L(0x9a9da1), coachWin: L(0x2b3640), kerbY: L(0xf2c418), kerbK: L(0x222222),
+    coach: L(0xf2f0ea), coachBand: L(0xf08a24), coachRoof: L(0x9a9da1), coachWin: L(0x2b3640, { name: 'glass' }), kerbY: L(0xf2c418), kerbK: L(0x222222),
   };
 
   // ---------- the line, sampled every metre-ish, with its level, normal and position in the station frame ----------

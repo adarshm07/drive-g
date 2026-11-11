@@ -207,6 +207,8 @@ let SD = null, SURFACE = null;
 /** sd: signed distance to water per pixel (+ land, - water); surface: SURF codes per pixel. */
 export function setTerrain(sd, surface) { SD = sd; SURFACE = surface; }
 export const terrainReady = () => SD !== null;
+/** The signed distance to water raster (TERRAIN.w x TERRAIN.h), for the water shader's shorelines. */
+export const terrainSD = () => SD;
 
 /** Signed distance to the nearest water in game units (bilinear). Positive on land. */
 export function waterDist(x, z) {
