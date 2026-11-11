@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Kannur Drive</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+  </script>
+</head>
+<body>
+  <canvas id="c"></canvas>
+
+  <div id="menu">
+    <section class="card main">
+      <header>
+        <h1>Kannur Drive</h1>
+        <p class="ml" lang="ml">കണ്ണൂർ ഡ്രൈവ്</p>
+        <p class="tag">Real Kannur roads, from Payyambalam and St. Angelo Fort to the drive-in beach at Muzhappilangad and the Muthappan temple at Parassinikadavu. Everyone online shares the same roads.</p>
+        <p class="credit">Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a></p>
+      </header>
+
+      <div id="who"></div>
+
+      <h2>Pick your car</h2>
+      <div id="cars"></div>
+      <div id="colors"></div>
+
+      <button id="play" class="primary">Start driving</button>
+      <p id="menuError" class="error" role="alert"></p>
+    </section>
+
+    <section class="card side">
+      <h2>Leaderboard</h2>
+      <div class="tabs" id="boardTabs">
+        <button data-k="coconuts" class="on">Coconuts</button>
+        <button data-k="distance">Distance</button>
+        <button data-k="places">Places</button>
+      </div>
+      <ol id="board"></ol>
+
+      <h2 id="acctTitle">Save your progress</h2>
+      <form id="auth">
+        <input id="user" placeholder="Username" autocomplete="username" maxlength="16">
+        <input id="pass" type="password" placeholder="Password" autocomplete="current-password">
+        <div class="row">
+          <button type="submit" data-mode="login">Log in</button>
+          <button type="submit" data-mode="register">Create account</button>
+        </div>
+        <p id="authError" class="error" role="alert"></p>
+      </form>
+      <div id="account" hidden></div>
+    </section>
+  </div>
+
+  <div id="hud" hidden>
+    <div id="stats" class="chip-row">
+      <span class="chip" title="Coconuts collected">🥥 <b id="sCoco">0</b></span>
+      <span class="chip" title="Places discovered">📍 <b id="sPlaces">0/0</b></span>
+      <span class="chip" title="Distance driven"><b id="sDist">0.0</b> km</span>
+    </div>
+    <div id="right">
+      <canvas id="map" width="360" height="360"></canvas>
+      <ul id="players"></ul>
+    </div>
+    <div id="toasts"></div>
+    <div id="speed"><b id="kmh">0</b><span>km/h</span></div>
+    <div id="help">WASD / arrows · Space brake · F get out / in / take a vehicle · Shift run · E talk · Enter chat · H horn · R respawn · M map</div>
+    <button id="talkPrompt" hidden></button>
+    <button id="carPrompt" hidden></button>
+    <div id="dialog" hidden role="dialog" aria-labelledby="dlgTitle">
+      <button id="dlgClose" aria-label="Close">✕</button>
+      <b id="dlgTitle"></b><small id="dlgSub" lang="ml"></small>
+      <p id="dlgText"></p>
+      <div id="dlgOpts"></div>
+    </div>
+    <div id="chat">
+      <ul id="chatLog" aria-live="polite"></ul>
+      <form id="chatForm"><input id="chatInput" maxlength="120" placeholder="Press Enter to chat" autocomplete="off" aria-label="Chat message"></form>
+    </div>
+    <button id="toMenu">Garage</button>
+
+    <div id="touch">
+      <div class="pad left">
+        <button data-k="left" aria-label="Steer left">◀</button>
+        <button data-k="right" aria-label="Steer right">▶</button>
+      </div>
+      <div class="pad rightpad">
+        <button data-k="exit" aria-label="Get out or in">🚪</button>
+        <button data-k="honk" aria-label="Horn">📣</button>
+        <button data-k="down" aria-label="Brake or reverse">▼</button>
+        <button data-k="up" aria-label="Accelerate">▲</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

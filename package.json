@@ -1,0 +1,21 @@
+{
+  "name": "kannur-drive",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Multiplayer low-poly driving game set in Kannur, Kerala",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "smoke": "node scripts/smoke.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1",
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.1"
+  },
+  "engines": { "node": ">=18" }
+}
