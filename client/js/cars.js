@@ -1,15 +1,7 @@
 import * as THREE from 'three';
 import { isTrafficType, makeTrafficCar } from './traffic.js';
-
-const L = (color, o = {}) => new THREE.MeshLambertMaterial({ color, flatShading: true, ...o });
-const TYRE = L(0x1b1b1b), GLASS = L(0x1d2b36), DARK = L(0x24262b), CHROME = L(0xb9bec4);
-const HEAD = new THREE.MeshBasicMaterial({ color: 0xfff3c0 }), TAIL = new THREE.MeshBasicMaterial({ color: 0xd32f2f });
-
-function box(w, h, d, m, x, y, z) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
-  mesh.position.set(x, y, z);
-  return mesh;
-}
+import { L, P, TYRE, GLASS, DARK, HEAD, TAIL, TYRE_SMOOTH, box, tyreGeometry, wheel } from './parts.js';
+import { makeSedan } from './sedan.js';
 
 // A box whose top is narrower and pulled in at the front/back: gives slanted windscreens.
 function cabin(w, h, d, front, rear, x, y, z) {
@@ -25,48 +17,6 @@ function cabin(w, h, d, front, rear, x, y, z) {
   const mesh = new THREE.Mesh(g, GLASS);
   mesh.position.set(x, y, z);
   return mesh;
-}
-
-// A round tyre with rounded shoulders, centred on the origin with its axle along x.
-// `inner` is the bead radius, where the rim sits.
-const TYRE_GEOMETRIES = new Map();
-function tyreGeometry(outer, inner, width, segments = 28) {
-  const key = [outer, inner, width, segments].map((v) => v.toFixed(3)).join();
-  if (TYRE_GEOMETRIES.has(key)) return TYRE_GEOMETRIES.get(key);
-  const hw = width / 2, sh = Math.min(width * 0.28, (outer - inner) * 0.45); // shoulder radius
-  const pts = [new THREE.Vector2(inner, -hw * 0.92), new THREE.Vector2(outer - sh * 0.6, -hw)];
-  for (let i = 0; i <= 4; i++) {                       // rounded shoulder, sidewall to tread
-    const a = -Math.PI / 2 + (i / 4) * (Math.PI / 2);
-    pts.push(new THREE.Vector2(outer - sh + Math.cos(a) * sh, -hw + sh + Math.sin(a) * sh));
-  }
-  for (let i = 0; i <= 4; i++) {                       // tread to the other sidewall
-    const a = (i / 4) * (Math.PI / 2);
-    pts.push(new THREE.Vector2(outer - sh + Math.cos(a) * sh, hw - sh + Math.sin(a) * sh));
-  }
-  pts.push(new THREE.Vector2(outer - sh * 0.6, hw), new THREE.Vector2(inner, hw * 0.92));
-  const g = new THREE.LatheGeometry(pts, segments);   // lathe spins about y; turn that into x
-  g.rotateZ(-Math.PI / 2);
-  TYRE_GEOMETRIES.set(key, g);
-  return g;
-}
-const TYRE_SMOOTH = new THREE.MeshLambertMaterial({ color: 0x1a1a1a, side: THREE.DoubleSide });
-
-function wheel(r, x, z, wheels) {
-  const pivot = new THREE.Group();
-  pivot.position.set(x, r, z);
-  const width = 0.34, rim = r * 0.62;
-  pivot.add(new THREE.Mesh(tyreGeometry(r, rim, width, 16), TYRE));
-  const disc = new THREE.Mesh(new THREE.CylinderGeometry(rim, rim, width * 0.8, 16), CHROME);
-  disc.rotation.z = Math.PI / 2;
-  pivot.add(disc);
-  // spokes on the outer face, so you can see the wheel turn
-  for (let i = 0; i < 5; i++) {
-    const spoke = box(0.04, rim * 1.7, rim * 0.22, DARK, Math.sign(x) * width * 0.41, 0, 0);
-    spoke.rotation.x = (i / 5) * Math.PI;
-    pivot.add(spoke);
-  }
-  wheels.push(pivot);
-  return pivot;
 }
 
 // Replace a model's tyre mesh with a clean one of the same size, fitted around the rim.
@@ -98,8 +48,8 @@ function refitTyre(pivot, tyreMesh, rimMesh) {
 // A model replaces the built-in box car of the same type. Materials are restyled by name so the
 // body takes the colour the player picked: bodypaint, Window, Glass*, Tires, Alloy, Trim, Headlight*, Brake*.
 const MODELS = {};
-const MODEL_FILES = { sedan: { url: '/assets/cars/sedan.glb', length: 4.7 } };
-const P = (color, o = {}) => new THREE.MeshPhongMaterial({ color, specular: 0x555555, shininess: 70, ...o });
+// e.g. { hatch: { url: '/assets/cars/hatch.glb', length: 3.9 } }. Only use models you have the rights to.
+const MODEL_FILES = {};
 const STYLE = [
   [/^window/i, P(0x10181f, { shininess: 120 })],
   [/^glass/i, P(0xdfe8ee, { transparent: true, opacity: 0.45, shininess: 120 })],
@@ -176,6 +126,7 @@ function fromModel(template, color) {
 export function makeCar(type, color) {
   if (isTrafficType(type)) return makeTrafficCar(type, color);
   if (MODELS[type]) return fromModel(MODELS[type], color);
+  if (type === 'sedan') return makeSedan(color);
   const g = new THREE.Group();
   const paint = L(color);
   const wheels = [];
@@ -203,18 +154,12 @@ export function makeCar(type, color) {
     spare.rotation.x = Math.PI / 2;
     spare.position.set(0, 1.25, -2.08);
     g.add(spare);
-  } else {
-    const sedan = type === 'sedan';
-    len = sedan ? 4.4 : 3.9;
-    const w = sedan ? 1.8 : 1.75, hz = len / 2;
+  } else {                                                       // hatchback
+    len = 3.9;
+    const w = 1.75, hz = len / 2;
     g.add(box(w, 0.55, len, paint, 0, 0.62, 0));
-    if (sedan) {
-      g.add(cabin(w - 0.14, 0.56, 2.4, 0.6, 0.55, 0, 1.17, -0.15));
-      g.add(box((w - 0.14) * 0.82, 0.07, 1.25, paint, 0, 1.47, -0.175));
-    } else {
-      g.add(cabin(w - 0.12, 0.58, 2.55, 0.65, 0.22, 0, 1.18, -0.6));
-      g.add(box((w - 0.12) * 0.82, 0.07, 1.68, paint, 0, 1.49, -0.815));
-    }
+    g.add(cabin(w - 0.12, 0.58, 2.55, 0.65, 0.22, 0, 1.18, -0.6));
+    g.add(box((w - 0.12) * 0.82, 0.07, 1.68, paint, 0, 1.49, -0.815));
     g.add(box(w * 0.55, 0.16, 0.06, DARK, 0, 0.72, hz + 0.01));  // grille
     g.add(box(w + 0.04, 0.16, 0.2, DARK, 0, 0.42, hz - 0.02), box(w + 0.04, 0.16, 0.2, DARK, 0, 0.42, -hz + 0.02));
     for (const sx of [1, -1]) {

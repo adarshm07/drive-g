@@ -23,7 +23,7 @@ Open the URL in two browser tabs (or share it on your network) to see multiplaye
 - **Sound:** a synthesised engine with gear changes, tyre and wind noise, and a horn that depends on the vehicle.
 - **Land:** flat coast, hills growing inland, lush and dry grass, red laterite, wet river banks, with coconut and areca palms, banana plants, forest trees, mangroves, scrub and boulders placed to suit.
 - **Buildings:** tiled houses, two-storey concrete homes, traditional long houses, roadside shops, sheds, multi-storey town blocks, mosques, churches and small temples.
-- **Cars:** sedan (a 3D model loaded from `client/assets/cars/sedan.glb`), hatchback and open-top 4x4, all free to pick, in 8 colours.
+- **Cars:** sedan, hatchback and open-top 4x4, all original low-poly designs built in code (`client/js/sedan.js`, `client/js/cars.js`), free to pick, in 8 colours. The sedan wears a Kannur `KL 13` number plate.
 - **On foot:** press F to get out of the car, walk with WASD, hold Shift to run, and press F next to your car to drive again. Other players see you walking.
 - **Shops:** 90 shopkeepers of 14 kinds, in Kannur town and along the roads outside it. Stop near one and press E to talk: local tips, directions to the nearest place you have not found, who else is online, and a chaya that gives a one-minute speed boost.
 - **Chat:** press Enter to type. Messages go to everyone in your room and appear as a speech bubble over the speaker.
@@ -45,6 +45,8 @@ Open the URL in two browser tabs (or share it on your network) to see multiplaye
 | `client/js/shops.js` | Shop types, shopkeeper lines and the low-poly person model. |
 | `client/js/scene.js` | Builds the 3D world with Three.js. |
 | `client/js/cars.js` | Low-poly car models and name tags. |
+| `client/js/sedan.js` | The sedan, built from extruded side profiles. |
+| `client/js/parts.js` | Shared car parts: materials, tyres and wheels. |
 | `client/js/main.js` | Menu, driving physics, networking, HUD and minimap. |
 
 There is no build step: the browser loads Three.js as an ES module straight from `node_modules`.
@@ -65,4 +67,4 @@ Any host that runs a long-lived Node process with WebSockets works (Render, Rail
 
 ## Using your own 3D car models
 
-Put a `.glb` file at `client/assets/cars/<type>.glb` (`sedan`, `hatch` or `suv`) and list it in `MODEL_FILES` in `client/js/cars.js`. The game scales it, sits it on the ground and recolours any material named `bodypaint` with the player's colour. Objects with `tire` or `wheel` in the name spin as wheels. `scripts/export-car.py` converts a Blender file (`python3 scripts/export-car.py -- car.blend out.glb`, needs the `bpy` package). Check the licence of any model you did not make before publishing the game.
+Put a `.glb` file at `client/assets/cars/<type>.glb` (`sedan`, `hatch` or `suv`; none ship by default) and list it in `MODEL_FILES` in `client/js/cars.js`. The game scales it, sits it on the ground and recolours any material named `bodypaint` with the player's colour. Objects with `tire` or `wheel` in the name spin as wheels. `scripts/export-car.py` converts a Blender file (`python3 scripts/export-car.py -- car.blend out.glb`, needs the `bpy` package). Check the licence of any model you did not make before publishing the game.
