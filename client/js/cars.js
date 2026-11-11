@@ -27,14 +27,71 @@ function cabin(w, h, d, front, rear, x, y, z) {
   return mesh;
 }
 
+// A round tyre with rounded shoulders, centred on the origin with its axle along x.
+// `inner` is the bead radius, where the rim sits.
+const TYRE_GEOMETRIES = new Map();
+function tyreGeometry(outer, inner, width, segments = 28) {
+  const key = [outer, inner, width, segments].map((v) => v.toFixed(3)).join();
+  if (TYRE_GEOMETRIES.has(key)) return TYRE_GEOMETRIES.get(key);
+  const hw = width / 2, sh = Math.min(width * 0.28, (outer - inner) * 0.45); // shoulder radius
+  const pts = [new THREE.Vector2(inner, -hw * 0.92), new THREE.Vector2(outer - sh * 0.6, -hw)];
+  for (let i = 0; i <= 4; i++) {                       // rounded shoulder, sidewall to tread
+    const a = -Math.PI / 2 + (i / 4) * (Math.PI / 2);
+    pts.push(new THREE.Vector2(outer - sh + Math.cos(a) * sh, -hw + sh + Math.sin(a) * sh));
+  }
+  for (let i = 0; i <= 4; i++) {                       // tread to the other sidewall
+    const a = (i / 4) * (Math.PI / 2);
+    pts.push(new THREE.Vector2(outer - sh + Math.cos(a) * sh, hw - sh + Math.sin(a) * sh));
+  }
+  pts.push(new THREE.Vector2(outer - sh * 0.6, hw), new THREE.Vector2(inner, hw * 0.92));
+  const g = new THREE.LatheGeometry(pts, segments);   // lathe spins about y; turn that into x
+  g.rotateZ(-Math.PI / 2);
+  TYRE_GEOMETRIES.set(key, g);
+  return g;
+}
+const TYRE_SMOOTH = new THREE.MeshLambertMaterial({ color: 0x1a1a1a, side: THREE.DoubleSide });
+
 function wheel(r, x, z, wheels) {
-  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.34, 10), TYRE);
-  mesh.rotation.z = Math.PI / 2;
-  mesh.position.set(x, r, z);
-  const hub = new THREE.Mesh(new THREE.BoxGeometry(r * 0.9, 0.36, r * 0.9), CHROME);
-  mesh.add(hub);
-  wheels.push(mesh);
-  return mesh;
+  const pivot = new THREE.Group();
+  pivot.position.set(x, r, z);
+  const width = 0.34, rim = r * 0.62;
+  pivot.add(new THREE.Mesh(tyreGeometry(r, rim, width, 16), TYRE));
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(rim, rim, width * 0.8, 16), CHROME);
+  disc.rotation.z = Math.PI / 2;
+  pivot.add(disc);
+  // spokes on the outer face, so you can see the wheel turn
+  for (let i = 0; i < 5; i++) {
+    const spoke = box(0.04, rim * 1.7, rim * 0.22, DARK, Math.sign(x) * width * 0.41, 0, 0);
+    spoke.rotation.x = (i / 5) * Math.PI;
+    pivot.add(spoke);
+  }
+  wheels.push(pivot);
+  return pivot;
+}
+
+// Replace a model's tyre mesh with a clean one of the same size, fitted around the rim.
+function refitTyre(pivot, tyreMesh, rimMesh) {
+  pivot.updateMatrixWorld(true);
+  const toPivot = new THREE.Matrix4().copy(pivot.matrixWorld).invert();
+  const local = (o) => {
+    const b = new THREE.Box3();
+    o.updateMatrixWorld(true);
+    const pos = o.geometry.attributes.position, v = new THREE.Vector3();
+    const m = new THREE.Matrix4().multiplyMatrices(toPivot, o.matrixWorld);
+    for (let i = 0; i < pos.count; i++) b.expandByPoint(v.fromBufferAttribute(pos, i).applyMatrix4(m));
+    return b;
+  };
+  const t = local(tyreMesh), tSize = t.getSize(new THREE.Vector3());
+  const outer = (tSize.y + tSize.z) / 4;
+  let inner = outer * 0.72;
+  if (rimMesh) {
+    const r = local(rimMesh).getSize(new THREE.Vector3());
+    inner = Math.min(outer * 0.92, ((r.y + r.z) / 4) * 1.01);
+  }
+  const fresh = new THREE.Mesh(tyreGeometry(outer, inner, tSize.x * 0.95), TYRE_SMOOTH);
+  fresh.position.x = t.getCenter(new THREE.Vector3()).x;
+  tyreMesh.visible = false;
+  pivot.add(fresh);
 }
 
 // ---------- cars loaded from 3D model files (client/assets/cars/<type>.glb) ----------
@@ -46,7 +103,7 @@ const P = (color, o = {}) => new THREE.MeshPhongMaterial({ color, specular: 0x55
 const STYLE = [
   [/^window/i, P(0x10181f, { shininess: 120 })],
   [/^glass/i, P(0xdfe8ee, { transparent: true, opacity: 0.45, shininess: 120 })],
-  [/^tire|^tyre/i, new THREE.MeshLambertMaterial({ color: 0x161616 })],
+  [/^tire|^tyre/i, new THREE.MeshLambertMaterial({ color: 0x161616, side: THREE.DoubleSide })],
   [/^alloy/i, P(0xc4c9cf, { shininess: 100 })],
   [/^trim/i, P(0x1b1d21, { shininess: 30 })],
   [/^headlight/i, new THREE.MeshBasicMaterial({ color: 0xfff6d0 })],
@@ -72,6 +129,7 @@ export async function loadCarModels() {
       const wheels = [];
       model.traverse((o) => {
         if (o.isMesh) {
+          o.userData.part = o.material.name;
           const st = STYLE.find(([re]) => re.test(o.material.name));
           if (/^bodypaint/i.test(o.material.name)) o.userData.paint = true;
           else if (st) o.material = st[1];
@@ -80,12 +138,18 @@ export async function loadCarModels() {
       });
       // each wheel gets a pivot at its centre so it can spin about the axle
       for (const w of wheels) {
+        const parts = [];
+        w.traverse((o) => o.isMesh && parts.push(o));
+        const tyre = parts.find((o) => /^tire|^tyre/i.test(o.userData.part));
+        const rim = parts.find((o) => /^alloy|^rim/i.test(o.userData.part));
         const pivot = new THREE.Group();
         pivot.userData.wheel = true;
-        pivot.position.copy(new THREE.Box3().setFromObject(w).getCenter(new THREE.Vector3()));
+        // the rim is the cleanest part of the wheel, so it gives the truest axle centre
+        pivot.position.copy(new THREE.Box3().setFromObject(rim || w, true).getCenter(new THREE.Vector3()));
         holder.add(pivot);
         holder.updateMatrixWorld(true);
         pivot.attach(w);
+        if (tyre) refitTyre(pivot, tyre, rim);
       }
       holder.userData.len = length;
       MODELS[type] = holder;
