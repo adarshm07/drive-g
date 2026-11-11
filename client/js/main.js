@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CARS, ALL_CARS, COLORS, LANDMARKS, ROADS, WORLD, BOUNDS, TERRAIN, SURF, heightAt, distToRoad, inBeach, spawnPoint, setTerrain } from '/shared/world.js';
+import { CARS, ALL_CARS, COLORS, LANDMARKS, ROADS, WORLD, BOUNDS, TERRAIN, SURF, heightAt, distToRoad, inBeach, spawnPoint, setTerrain, setElevation, ELEV } from '/shared/world.js';
 import { makeCar, makeLabel, loadCarModels } from './cars.js';
 import { buildWorld } from './scene.js';
 import { makeKeeper } from './shops.js';
@@ -19,25 +19,34 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, 1, 0.5, 900);
 const waterFx = createWaterFx(scene, WORLD.water);
 
-// The terrain (coastline, rivers, beaches) is a small raster built from OpenStreetMap data.
-const terrainImg = await new Promise((resolve, reject) => {
-  const img = new Image();
-  img.onload = () => resolve(img);
-  img.onerror = () => reject(new Error('Could not load the map'));
-  img.src = '/assets/terrain.png';
-});
-{
+// The terrain (coastline, rivers, beaches) is a small raster built from OpenStreetMap data, and the
+// hills come from a second raster of real ground heights. Both are read as raw pixel values.
+async function loadRaster(url, w, h) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Could not load the map');
+  const bmp = await createImageBitmap(await res.blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
   const cv = document.createElement('canvas');
-  cv.width = TERRAIN.w; cv.height = TERRAIN.h;
+  cv.width = w; cv.height = h;
   const cx = cv.getContext('2d', { willReadFrequently: true });
-  cx.drawImage(terrainImg, 0, 0);
-  const px = cx.getImageData(0, 0, TERRAIN.w, TERRAIN.h).data;
+  cx.drawImage(bmp, 0, 0);
+  return cx.getImageData(0, 0, w, h).data;
+}
+let terrainPx; // kept for drawing the minimap
+{
+  const [px, ev] = await Promise.all([
+    loadRaster('/assets/terrain.png', TERRAIN.w, TERRAIN.h),
+    loadRaster('/assets/elevation.png', ELEV.w, ELEV.h),
+  ]);
   const sd = new Float32Array(TERRAIN.w * TERRAIN.h), surf = new Uint8Array(TERRAIN.w * TERRAIN.h);
   for (let i = 0; i < sd.length; i++) {
     sd[i] = (px[i * 4] / 255) * 2 * TERRAIN.sdRange - TERRAIN.sdRange;
     surf[i] = px[i * 4 + 1];
   }
   setTerrain(sd, surf);
+  terrainPx = px;
+  const metres = new Float32Array(ELEV.w * ELEV.h);
+  for (let i = 0; i < metres.length; i++) metres[i] = (ev[i * 4] * 256 + ev[i * 4 + 1]) / 10 - 100;
+  setElevation(metres);
 }
 const world = buildWorld(scene);
 const traffic = buildTraffic(scene); // buses, lorries, cars and autos, the same for every player
@@ -534,9 +543,10 @@ function takeVehicle(v) {
 }
 
 // Get out of the car and walk, or get back in when you are next to it.
-function toggleFoot() {
+// F also takes over a traffic vehicle within reach; the Walk / Drive button never does.
+function toggleFoot(takeTraffic = true) {
   if (mode !== 'play') return;
-  const v = nearVehicle();
+  const v = takeTraffic && nearVehicle();
   if (v && (me.foot ? Math.hypot(me.car.x - me.x, me.car.z - me.z) >= 4.5 : true)) return takeVehicle(v);
   if (!me.foot) {
     if (Math.abs(me.speed) > 3) return toast(null, 'Stop the car before getting out.');
@@ -704,8 +714,7 @@ mapBase.height = Math.round((BOUNDS.z1 - BOUNDS.z0) * MK);
   const cv = document.createElement('canvas');
   cv.width = TERRAIN.w; cv.height = TERRAIN.h;
   const tc = cv.getContext('2d');
-  tc.drawImage(terrainImg, 0, 0);
-  const img = tc.getImageData(0, 0, TERRAIN.w, TERRAIN.h), d = img.data;
+  const img = new ImageData(new Uint8ClampedArray(terrainPx), TERRAIN.w, TERRAIN.h), d = img.data;
   for (let i = 0; i < d.length; i += 4) {
     const water = d[i] < 127.5, s = d[i + 1];
     const col = water ? [47, 147, 184] : s === SURF.drivein ? [232, 196, 120] : s === SURF.sand ? [236, 220, 171] : s === SURF.paddy ? [165, 220, 102] : [125, 187, 92];
@@ -816,11 +825,14 @@ $('talkPrompt').onclick = () => nearShop && openDialog(nearShop);
 $('carPrompt').onclick = toggleFoot;
 
 // ---------- walk / drive button ----------
-function updateFootBtn() { $('footBtn').textContent = me.foot ? '🚗 Drive' : '🚶 Walk'; }
+function updateFootBtn() {
+  const label = me.foot ? '🚗 Drive' : '🚶 Walk';
+  if ($('footBtn').textContent !== label) $('footBtn').textContent = label;
+}
 $('footBtn').onclick = (e) => {
   e.currentTarget.blur(); // keep Space and Enter for driving and chat
   if (mode !== 'play') return;
-  if (!me.foot || Math.hypot(me.car.x - me.x, me.car.z - me.z) < 4.5) toggleFoot();
+  if (!me.foot || Math.hypot(me.car.x - me.x, me.car.z - me.z) < 4.5) toggleFoot(false);
   else if (depthAt(me.x, me.z) > WADE_CAR) toast(null, 'Too deep for the car here. Walk back towards the shore.');
   else { // far from the car: it comes to you
     Object.assign(me, { foot: false, speed: 0 });
@@ -952,6 +964,7 @@ function frame() {
     if (me.foot) { walk(dt); placeAvatar(me.avatar, me.x, me.z, me.rot, me.speed, t); }
     else { drive(dt); place(me.group, me.x, me.z, me.rot, me.speed, dt); }
     wake(me, me.x, me.z, me.rot, me.speed, dt, me.foot);
+    updateFootBtn();
 
     const k = 1 - Math.exp(-10 * dt);
     remotes.forEach((r) => {

@@ -15,7 +15,7 @@ Open the URL in two browser tabs (or share it on your network) to see multiplaye
 
 ## What is in the game
 
-- **World:** real Kannur at 1:10 scale, built from OpenStreetMap: NH 66, state and district roads, the coastline, Dharmadam Island, the Valapattanam, Anjarakandy and Dharmadam rivers, with bridges where roads cross water.
+- **World:** real Kannur at 1:10 scale, built from OpenStreetMap: NH 66, state and district roads, the coastline, Dharmadam Island, the Valapattanam, Anjarakandy and Dharmadam rivers, with bridges where roads cross water. The hills and valleys are real too, from open elevation data (shown twice their real height so they read at 1:10), and roads are graded: they climb smoothly, sit level from edge to edge, and the ground beside them is cut or filled to meet them.
 - **Places to discover (13):** Muzhappilangad drive-in beach, Dharmadam Island view, Parassinikadavu Muthappan temple, Valapattanam bridge, St. Angelo Fort, Kannur Lighthouse, Payyambalam Beach, Kannur Railway Station, Thavakkara Bus Terminal, Gandhi Circle (Caltex Junction), Arakkal Museum, the Chovva junction chayakada and the paddy fields.
 - **Roads:** laterite shoulders, edge lines, lane markings that stop at junctions, electric poles, and four marked lanes on NH 66.
 - **Traffic:** 160 vehicles of 12 kinds (buses, mini buses, lorries, mini trucks, vans, cars, hatchbacks, SUVs, jeeps, autorickshaws, motorbikes, scooters) drive the main roads, keeping left. Their positions come from the clock, so every player sees the same traffic (`client/js/traffic.js`).
@@ -33,6 +33,8 @@ Open the URL in two browser tabs (or share it on your network) to see multiplaye
 ## Rebuilding the map
 
 `python3 scripts/build-map.py data-src/kannur-osm-raw.json` regenerates `shared/map-data.js` and `client/assets/terrain.png` from the OpenStreetMap export (needs numpy, scipy and Pillow). Map data (c) OpenStreetMap contributors, ODbL.
+
+`python3 scripts/build-elevation.py` regenerates `client/assets/elevation.png`, the real ground heights, from the open [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) on AWS (needs numpy and Pillow; tiles are cached in `data-src/elevation-cache/`). Elevation data: Terrain Tiles, from SRTM (NASA) and other public sources. `shared/world.js` turns the heights into terrain and road levels when the game loads (`setElevation`, `heightAt`).
 
 ## How it is built
 

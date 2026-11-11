@@ -84,19 +84,23 @@ export function samplePath(pts, step = 3) {
 }
 
 // ---------- road lookup (spatial hash of points along every road) ----------
-const CELL = 16;
+// Each entry: x, z, half width, road index, tangent x, tangent z, surface height, grade.
+// Heights are filled in once the elevation is loaded (setElevation); until then roads are flat.
+const CELL = 16, STRIDE = 8;
 const grid = new Map();
 const key = (i, j) => i * 100003 + j;
-ROADS.forEach((r, ri) => {
-  const sm = samplePath(r.pts, 2);
+const ROAD_SAMPLES = ROADS.map((r, ri) => {
+  const sm = samplePath(r.pts, 2), slots = [];
   sm.forEach(([x, z], n) => {
     const a = sm[Math.max(n - 1, 0)], b = sm[Math.min(n + 1, sm.length - 1)];
     const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
     const k = key(Math.floor(x / CELL), Math.floor(z / CELL));
     let cell = grid.get(k);
     if (!cell) grid.set(k, (cell = []));
-    cell.push(x, z, r.width / 2, ri, (b[0] - a[0]) / l, (b[1] - a[1]) / l);
+    slots.push([cell, cell.length]);
+    cell.push(x, z, r.width / 2, ri, (b[0] - a[0]) / l, (b[1] - a[1]) / l, 0.2, 0);
   });
+  return { sm, slots };
 });
 
 /**
@@ -107,19 +111,25 @@ export function distToRoad(x, z) {
   return nearestRoad(x, z).edge;
 }
 
+/**
+ * The nearest road: distance to its edge, the road, and its surface height level with this
+ * point (taken from the centreline, so a road is level from edge to edge).
+ */
 export function nearestRoad(x, z) {
   const ci = Math.floor(x / CELL), cj = Math.floor(z / CELL);
-  let best = 99, road = -1;
+  let best = 99, bc = null, bk = 0;
   for (let i = ci - 1; i <= ci + 1; i++)
     for (let j = cj - 1; j <= cj + 1; j++) {
       const cell = grid.get(key(i, j));
       if (!cell) continue;
-      for (let k = 0; k < cell.length; k += 6) {
+      for (let k = 0; k < cell.length; k += STRIDE) {
         const d = Math.hypot(cell[k] - x, cell[k + 1] - z) - cell[k + 2];
-        if (d < best) { best = d; road = cell[k + 3]; }
+        if (d < best) { best = d; bc = cell; bk = k; }
       }
     }
-  return { edge: best, road: road >= 0 ? ROADS[road] : null };
+  if (!bc) return { edge: best, road: null, level: 0 };
+  const along = (x - bc[bk]) * bc[bk + 4] + (z - bc[bk + 1]) * bc[bk + 5];
+  return { edge: best, road: ROADS[bc[bk + 3]], level: bc[bk + 6] + bc[bk + 7] * along };
 }
 
 /**
@@ -132,7 +142,7 @@ export function onCrossingRoad(x, z, ri, tx, tz, pad = 0.2) {
     for (let j = cj - 1; j <= cj + 1; j++) {
       const cell = grid.get(key(i, j));
       if (!cell) continue;
-      for (let k = 0; k < cell.length; k += 6) {
+      for (let k = 0; k < cell.length; k += STRIDE) {
         if (cell[k + 3] === ri) continue;
         if (Math.hypot(cell[k] - x, cell[k + 1] - z) > cell[k + 2] + pad) continue;
         if (Math.abs(tx * cell[k + 5] - tz * cell[k + 4]) > 0.3) return true; // not parallel: a real junction
@@ -184,12 +194,75 @@ export function heightAt(x, z) {
     if (sd > shelf) return WORLD.water + (sd - edge) * 0.2;
     return Math.max(-4.5, WORLD.water + (shelf - edge) * 0.2 + (sd - shelf) * 0.55);
   }
-  // flat coastal plain in the west, rolling laterite hills that grow towards the east
-  const east = smooth(-350, 520, x);
-  const roll = Math.sin(x * 0.009 + Math.cos(z * 0.006) * 2.1) * Math.cos(z * 0.0105 + 0.7);
-  const ridge = Math.sin(x * 0.021 + z * 0.013) * Math.cos(z * 0.019 - x * 0.007);
-  const hills = (1.2 + 1.2 * roll) * (1 + east * 3.2) + (0.5 + 0.5 * ridge) * east * 3.5;
-  return -0.25 + smooth(0, 3, sd) * 0.45 + smooth(6, 90, sd) * hills;
+  // Real ground from the elevation raster. Near the coast and the rivers the relief fades out, so
+  // beaches and banks stay low and the shorelines stay where the map puts them.
+  const land = landHeight(x, z, sd);
+  if (!GROUND) return land;
+  // Roads run on a smoothed copy of the ground (see setElevation): they climb gently, are level
+  // across their width and agree at junctions. Land beside a road is cut or filled to meet it.
+  const nr = nearestRoad(x, z);
+  if (nr.edge >= 6) return land;
+  return nr.level + (land - nr.level) * smooth(0.3, 6, nr.edge);
+}
+
+function landHeight(x, z, sd, field = GROUND) {
+  const base = -0.25 + smooth(0, 3, sd) * 0.45;
+  return field ? base + elevSample(field, x, z) * smooth(1, 14, sd) : base;
+}
+
+// ---------- elevation (loaded by the client from client/assets/elevation.png) ----------
+// Real heights in metres from open terrain data (scripts/build-elevation.py), one pixel per
+// ELEV.res units. Shown 2x taller than life so the hills read at the game's 1:10 scale.
+export const ELEV = {
+  res: 4, x0: BOUNDS.x0, z0: BOUNDS.z0,
+  w: Math.round((BOUNDS.x1 - BOUNDS.x0) / 4), h: Math.round((BOUNDS.z1 - BOUNDS.z0) / 4),
+  exaggerate: 2,
+};
+let GROUND = null, ROAD_LEVEL = null;
+
+// Separable box blur, `passes` times (three passes are close to a Gaussian).
+function blur(src, w, h, r, passes) {
+  let a = Float32Array.from(src), b = new Float32Array(a.length);
+  for (let p = 0; p < passes; p++) {
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+      let s = 0, n = 0;
+      for (let k = Math.max(0, i - r); k <= Math.min(w - 1, i + r); k++) { s += a[j * w + k]; n++; }
+      b[j * w + i] = s / n;
+    }
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+      let s = 0, n = 0;
+      for (let k = Math.max(0, j - r); k <= Math.min(h - 1, j + r); k++) { s += b[k * w + i]; n++; }
+      a[j * w + i] = s / n;
+    }
+  }
+  return a;
+}
+
+/** metres: Float32Array of ELEV.w * ELEV.h real ground heights. */
+export function setElevation(metres) {
+  const k = ELEV.exaggerate / 10; // metres -> game units (1 unit = 10 m)
+  const relief = metres.map((m) => Math.max(0, m - 1.5) * k);
+  GROUND = blur(relief, ELEV.w, ELEV.h, 1, 1);             // light smoothing of survey noise
+  ROAD_LEVEL = blur(relief, ELEV.w, ELEV.h, 4, 3);         // gentle grades for the roads
+  // the height of every road sample along its centreline, and the grade between samples
+  for (const { sm, slots } of ROAD_SAMPLES) {
+    const y = sm.map(([x, z]) => Math.max(0.15, landHeight(x, z, waterDist(x, z), ROAD_LEVEL)));
+    slots.forEach(([cell, k], n) => {
+      const a = Math.max(n - 1, 0), b = Math.min(n + 1, sm.length - 1);
+      const d = Math.hypot(sm[b][0] - sm[a][0], sm[b][1] - sm[a][1]) || 1;
+      cell[k + 6] = y[n];
+      cell[k + 7] = (y[b] - y[a]) / d;
+    });
+  }
+}
+
+function elevSample(A, x, z) {
+  const { w, h, res, x0, z0 } = ELEV;
+  const fx = Math.min(w - 1.001, Math.max(0, (x - x0) / res - 0.5));
+  const fz = Math.min(h - 1.001, Math.max(0, (z - z0) / res - 0.5));
+  const i = Math.floor(fx), j = Math.floor(fz), tx = fx - i, tz = fz - j;
+  const a = A[j * w + i], b = A[j * w + i + 1], c = A[(j + 1) * w + i], d = A[(j + 1) * w + i + 1];
+  return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz;
 }
 
 export const isWater = (x, z) => waterDist(x, z) < 0;
