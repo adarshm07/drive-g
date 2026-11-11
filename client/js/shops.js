@@ -39,11 +39,15 @@ const SHIRTS = [0x1565c0, 0xc62828, 0x2e7d32, 0xf9a825, 0x6a1b9a, 0x00838f].map(
 const SKIN = L(0xb07a4f), MUNDU = L(0xf5f1e6), HAIR = L(0x1c1c1c);
 
 /** A simple low-poly shopkeeper, about 1.7 units tall, facing +z. */
+// one material per shirt colour, shared, so crowds merge into few meshes
+const SHIRT_MATS = new Map();
+const shirtOf = (c) => { if (!SHIRT_MATS.has(c)) SHIRT_MATS.set(c, L(c)); return SHIRT_MATS.get(c); };
+
 export function makeKeeper(i, shirt) {
   const g = new THREE.Group();
   const part = (w, h, d, m, x, y, z) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); b.position.set(x, y, z); g.add(b); return b; };
   part(0.55, 0.85, 0.34, MUNDU, 0, 0.43, 0);            // mundu
-  part(0.6, 0.62, 0.36, shirt ? L(shirt) : SHIRTS[i % SHIRTS.length], 0, 1.16, 0); // shirt
+  part(0.6, 0.62, 0.36, shirt ? shirtOf(shirt) : SHIRTS[i % SHIRTS.length], 0, 1.16, 0); // shirt
   part(0.34, 0.34, 0.32, SKIN, 0, 1.64, 0);             // head
   part(0.36, 0.12, 0.34, HAIR, 0, 1.84, 0);
   const arm = part(0.14, 0.55, 0.16, SKIN, 0.38, 1.3, 0);

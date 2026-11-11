@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   WORLD, BOUNDS, TERRAIN, ROADS, LANDMARKS, PADDIES, BEACH_ENTRY, SURF,
-  samplePath, heightAt, distToRoad, waterDist, surfaceAt, onCrossingRoad,
+  samplePath, heightAt, distToRoad, distToRoadOnly, waterDist, surfaceAt, onCrossingRoad,
 } from '/shared/world.js';
 import { makeLabel } from './cars.js';
 import { coconutPalm, arecaPalm, palmMaterial, lodInstances } from './palms.js';
@@ -225,19 +225,47 @@ export function buildWorld(scene) {
       const sm = samplePath(r.pts, 1.5), n = sm.length;
       const R = { sm, tx: [], tz: [], y: [], noise: [] };
       for (let i = 0; i < n; i++) {
-        const a = sm[Math.max(i - 1, 0)], b = sm[Math.min(i + 1, n - 1)], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+        // direction taken over a few metres either side, so the edges curve through corners instead of kinking
+        const a = sm[Math.max(i - 4, 0)], b = sm[Math.min(i + 4, n - 1)], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
         R.tx.push((b[0] - a[0]) / l); R.tz.push((b[1] - a[1]) / l);
         R.y.push(roadY(sm[i][0], sm[i][1]));
         R.noise.push(rng());
       }
       const w = r.width;
+      // Junction fragments (slip roads, bits of roundabout) are shorter than they are wide; as a
+      // ribbon they crumple. Draw them as a flat patch of tarmac instead: discs along the stub, all
+      // at one height, with no markings.
+      let plen = 0;
+      for (let i = 1; i < n; i++) plen += Math.hypot(sm[i][0] - sm[i - 1][0], sm[i][1] - sm[i - 1][1]);
+      if (plen < w * 1.5) {
+        const { pos, idx, col } = layers.tarmac, y = R.y[n >> 1] + 0.1;
+        tmp.set(r.cls === 'q' ? 0x55565b : 0x4a4b51);
+        for (let i = 0; i < n; i += 2) {
+          const base = pos.length / 3;
+          pos.push(sm[i][0], y, sm[i][1]); col.push(tmp.r, tmp.g, tmp.b);
+          for (let k = 0; k < 14; k++) {
+            const a = (k / 14) * Math.PI * 2;
+            pos.push(sm[i][0] + Math.cos(a) * w * 0.58, y, sm[i][1] + Math.sin(a) * w * 0.58); col.push(tmp.r, tmp.g, tmp.b);
+            idx.push(base, base + 1 + ((k + 1) % 14), base + 1 + k);
+          }
+        }
+        return;
+      }
       // a marking segment is drawn only where it is clear of crossing roads, so junctions stay clean
       const clear = (off) => (i) => {
         const x = (sm[i][0] + sm[i + 1][0]) / 2 - R.tz[i] * off, z = (sm[i][1] + sm[i + 1][1]) / 2 + R.tx[i] * off;
         return !onCrossingRoad(x, z, ri, R.tx[i], R.tz[i], 0.6);
       };
       const dashed = (off, on, period, phase = 0) => { const c = clear(off); return (i) => (i + phase) % period < on && c(i); };
-      strip('shoulder', R, 0, w + (r.cls === 'q' ? 1.4 : 2.6), 0.05, null, 0xa9785a);
+      // laterite shoulders: a band along each side, left out wherever it would lie on another road
+      const sw = r.cls === 'q' ? 0.7 : 1.3;
+      for (const s of [-1, 1]) {
+        const o = s * (w / 2 + sw / 2 - 0.15);
+        strip('shoulder', R, o, sw + 0.3, 0.05, (i) => {
+          const x = (sm[i][0] + sm[i + 1][0]) / 2 - R.tz[i] * o, z = (sm[i][1] + sm[i + 1][1]) / 2 + R.tx[i] * o;
+          return distToRoadOnly(x, z) > -0.05;
+        }, 0xa9785a);
+      }
       strip('tarmac', R, 0, w, 0.1, null, r.cls === 'q' ? 0x55565b : 0x4a4b51);
       if (r.cls !== 'q') for (const s of [-1, 1]) strip('paint', R, s * (w / 2 - 0.35), 0.15, 0.14, clear(s * (w / 2 - 0.35)));
       if (r.cls === 't') {         // four lanes: double centre line, dashed lane lines
@@ -272,7 +300,11 @@ export function buildWorld(scene) {
       geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       if (col.length) geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
       geo.setIndex(idx);
-      geo.computeVertexNormals();
+      // roads are lit as flat ground facing up, whichever way a piece is wound where roads fold or meet
+      const nrm = new Float32Array(pos.length);
+      for (let i = 1; i < nrm.length; i += 3) nrm[i] = 1;
+      geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+      mat.side = THREE.DoubleSide;
       const road = new THREE.Mesh(geo, mat);
       road.userData.shadow = 'receive';
       scene.add(road);
@@ -381,6 +413,94 @@ export function buildWorld(scene) {
     scene.add(sign);
     for (const s of [-1, 1]) { const x = ex + s * 7, z = ez; scene.add(box(0.6, 6, 0.6, L(0xf2efe6), x, roadY(x, z) + 3, z)); colliders.push({ x, z, r: 0.6 }); }
     scene.add(box(15, 1.4, 0.7, L(0x1565c0), ex, roadY(ex, ez) + 6.2, ez));
+    // people on the beaches: families standing about and under umbrellas, some paddling in the
+    // shallows, others strolling along the waterline, children running about
+    {
+      const shirts = [0xe53935, 0x1e88e5, 0xfdd835, 0x43a047, 0xfb8c00, 0x8e24aa, 0xf06292, 0x00acc1, 0xf5f5f5, 0x6d4c41];
+      const brollies = [0xe53935, 0x1e88e5, 0xfdd835, 0xfb8c00, 0x43a047];
+      const brollyMats = brollies.map((c) => L(c)), poleMat = L(0xdddddd), matMat = L(0xf2e3c2);
+      const person = (scale = 1) => { const m = makeKeeper(Math.floor(rng() * 20), pickShirt()); m.scale.setScalar(scale * (0.92 + rng() * 0.14)); return m; };
+      const pickShirt = () => shirts[Math.floor(rng() * shirts.length)];
+      const onSand = (x, z) => { const sf = surfaceAt(x, z); return sf === SURF.sand || sf === SURF.drivein; };
+      const walkers = [];
+      for (const [id, spanX, spanZ, groups, strollers, kids] of [['beach', 120, 320, 16, 8, 5], ['payyambalam', 110, 170, 14, 7, 4]]) {
+        const lm = lmk(id);
+        const spot = (sdMin, sdMax, gap = 3) => {
+          for (let i = 0; i < 600; i++) {
+            const x = lm.x + (rng() - 0.5) * spanX, z = lm.z + (rng() - 0.5) * spanZ, sd = waterDist(x, z);
+            if (sd < sdMin || sd > sdMax || (sd > 0 && !onSand(x, z)) || distToRoad(x, z) < 2.5) continue;
+            if (colliders.some((c) => Math.abs(c.x - x) < c.r + gap && Math.abs(c.z - z) < c.r + gap)) continue;
+            return [x, z];
+          }
+          return null;
+        };
+        // which way the sea is from a point: downhill in distance-to-water
+        const seaward = (x, z) => Math.atan2(waterDist(x - 2, z) - waterDist(x + 2, z), waterDist(x, z - 2) - waterDist(x, z + 2));
+        // groups on the sand, some with an umbrella and a mat
+        for (let k = 0; k < groups; k++) {
+          const c = spot(3, 16);
+          if (!c) continue;
+          const [cx, cz] = c, n = 2 + Math.floor(rng() * 3), sea = seaward(cx, cz);
+          if (rng() < 0.45) {
+            const col = Math.floor(rng() * brollies.length), y = heightAt(cx, cz);
+            statics.add(box(0.07, 2.3, 0.07, poleMat, cx, y + 1.15, cz));
+            const top = new THREE.Mesh(new THREE.ConeGeometry(1.7, 0.6, 8), brollyMats[col]);
+            top.position.set(cx, y + 2.45, cz);
+            statics.add(top);
+            statics.add(box(2.2, 0.04, 1.5, matMat, cx + 0.6, y + 0.04, cz + 0.4));
+          }
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * Math.PI * 2 + rng(), x = cx + Math.cos(a) * 1.1, z = cz + Math.sin(a) * 1.1;
+            const m = person(rng() < 0.25 ? 0.62 : 1);
+            m.position.set(x, heightAt(x, z), z);
+            m.rotation.y = rng() < 0.6 ? sea + (rng() - 0.5) * 0.8 : Math.atan2(cx - x, cz - z); // watching the sea, or each other
+            statics.add(m);
+            colliders.push({ x, z, r: 0.35 });
+          }
+        }
+        // paddling in the shallows, knee deep
+        for (let k = 0; k < groups; k++) {
+          const c = spot(-2.6, -0.9, 1);
+          if (!c) continue;
+          const m = person(rng() < 0.4 ? 0.62 : 1);
+          m.position.set(c[0], Math.max(heightAt(c[0], c[1]), WORLD.water - 0.55), c[1]);
+          m.rotation.y = seaward(c[0], c[1]) + (rng() - 0.5) * 2;
+          statics.add(m);
+        }
+        // strolling up and down the waterline, and children running in circles
+        for (let k = 0; k < strollers; k++) {
+          const a = spot(1.5, 6), b = a && (() => { for (let i = 0; i < 60; i++) { const q = spot(1.5, 6); if (q && Math.hypot(q[0] - a[0], q[1] - a[1]) > 18 && Math.hypot(q[0] - a[0], q[1] - a[1]) < 60) return q; } return null; })();
+          if (!a || !b) continue;
+          const m = person();
+          scene.add(m);
+          walkers.push({ m, a, b, len: Math.hypot(b[0] - a[0], b[1] - a[1]), speed: 1.1 + rng() * 0.5, phase: rng() * 100 });
+        }
+        for (let k = 0; k < kids; k++) {
+          const c = spot(4, 14);
+          if (!c) continue;
+          const m = person(0.6);
+          scene.add(m);
+          walkers.push({ m, c, r: 2.2 + rng() * 2, speed: 3 + rng(), phase: rng() * 100 });
+        }
+      }
+      animated.push((t) => {
+        for (const w of walkers) {
+          let x, z, rot;
+          if (w.c) {                                   // a child running round in a circle
+            const a = (t * w.speed) / w.r + w.phase;
+            x = w.c[0] + Math.cos(a) * w.r; z = w.c[1] + Math.sin(a) * w.r; rot = Math.atan2(-Math.sin(a), Math.cos(a));
+          } else {                                     // there and back along the shore
+            const d = (t * w.speed + w.phase) % (2 * w.len), f = (d < w.len ? d : 2 * w.len - d) / w.len, dir = d < w.len ? 1 : -1;
+            x = w.a[0] + (w.b[0] - w.a[0]) * f; z = w.a[1] + (w.b[1] - w.a[1]) * f;
+            rot = Math.atan2((w.b[0] - w.a[0]) * dir, (w.b[1] - w.a[1]) * dir);
+          }
+          w.m.position.set(x, Math.max(heightAt(x, z), WORLD.water - 0.5) + Math.abs(Math.sin(t * 9 + w.phase)) * 0.06, z);
+          w.m.rotation.y = rot;
+          w.m.userData.arm.rotation.x = Math.sin(t * 9 + w.phase) * 0.8;
+        }
+      });
+    }
+
     // fishing boats pulled up on the sand, close to the waterline
     const boatCols = [0x1e88e5, 0xe53935, 0xfdd835, 0x43a047, 0x1e88e5, 0xfb8c00, 0xe53935, 0xfdd835];
     const beach = lmk('beach');
@@ -642,8 +762,50 @@ export function buildWorld(scene) {
       g.add(r1, r2, box(3, 2.8, 0.1, pickOf(PAL.shutter), 0, 1.4, d / 2 + 0.02));
     }
     // compound wall with a gate gap, for homes
-    if (k < 0.76 && rng() < 0.55) for (const sx of [-1, 1]) g.add(box(w * 0.5, 0.9, 0.2, PAL.white, sx * (w * 0.25 + 1), 0.45, d / 2 + 3.2));
+    if (k < 0.76 && rng() < 0.55) g.userData.plot = { w, d }; // built once the house is placed (compoundWall)
     return [h, d / 2];
+  }
+
+  // A compound wall round a house plot: front wall with gate posts and an iron gate, sides and
+  // back, in white plaster or laterite brick with a coping. The house group `g` faces the road
+  // (+z). Any stretch that would come within a metre of a road or the water is pulled back
+  // towards the house or left out, so walls never stand on the roadside.
+  const wallKinds = [[L(0xf1ece0), L(0xcfc8b8)], [L(0xa9583a), L(0x8a4a33)], [L(0xe6d9b8), L(0xb9a98a)]];
+  const iron = L(0x2c3138);
+  const plots = []; // where walled houses are, for tests
+  function compoundWall(g, x, z, rot, { w, d }) {
+    plots.push([x, z, rot]);
+    const T = local(x, z, rot), [body, cap] = pickOf(wallKinds);
+    const H = 1.25, TH = 0.24, sideX = w / 2 + 1.7, back = -(d / 2 + 1.6);
+    const clear = (lx, lz) => { const [wx, wz] = T(lx, lz); return distToRoad(wx, wz) > 1 && waterDist(wx, wz) > 1.5; };
+    const run = (x0, z0, x1, z1) => {                       // one straight stretch, if all of it is clear
+      const len = Math.hypot(x1 - x0, z1 - z0), n = Math.max(2, Math.ceil(len / 1.5));
+      for (let i = 0; i <= n; i++) if (!clear(x0 + ((x1 - x0) * i) / n, z0 + ((z1 - z0) * i) / n)) return false;
+      const along = Math.abs(x1 - x0) > Math.abs(z1 - z0), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+      g.add(box(along ? len : TH, H, along ? TH : len, body, cx, H / 2, cz), box(along ? len + 0.1 : TH + 0.14, 0.1, along ? TH + 0.14 : len + 0.1, cap, cx, H + 0.05, cz));
+      for (let i = 0; i <= n; i++) { const [wx, wz] = T(x0 + ((x1 - x0) * i) / n, z0 + ((z1 - z0) * i) / n); colliders.push({ x: wx, z: wz, r: 0.35 }); }
+      return true;
+    };
+    // the front wall sits as far forward as the road allows
+    let front = null;
+    for (const f of [d / 2 + 2.6, d / 2 + 1.8, d / 2 + 1.1]) if (clear(-sideX, f) && clear(0, f) && clear(sideX, f)) { front = f; break; }
+    const gate = 1.25;                                      // half the gateway
+    if (front !== null) {
+      const a = run(-sideX, front, -gate, front), b = run(gate, front, sideX, front);
+      if (a && b) {
+        for (const sx of [-1, 1]) g.add(box(0.42, H + 0.5, 0.42, body, sx * (gate + 0.05), (H + 0.5) / 2, front), box(0.56, 0.12, 0.56, cap, sx * (gate + 0.05), H + 0.56, front));
+        for (const sx of [-1, 1]) {                         // a pair of iron gate leaves, ajar
+          const leaf = new THREE.Group();
+          leaf.position.set(sx * (gate - 0.15), 0, front);
+          leaf.rotation.y = sx * 0.9;
+          leaf.add(box(1.05, 0.08, 0.06, iron, -sx * 0.52, 1.1, 0), box(1.05, 0.08, 0.06, iron, -sx * 0.52, 0.2, 0));
+          for (let k = 0; k < 5; k++) leaf.add(box(0.05, 0.98, 0.05, iron, -sx * (0.06 + k * 0.24), 0.65, 0));
+          g.add(leaf);
+        }
+      }
+    }
+    const f = front ?? d / 2 + 0.6;
+    run(-sideX, back, -sideX, f); run(sideX, back, sideX, f); run(-sideX, back, sideX, back);
   }
 
   // ----- houses and shops along the real roads -----
@@ -691,6 +853,7 @@ export function buildWorld(scene) {
           } else {
             let isShop;
             [h, foot, isShop] = ruralBuilding(g);
+            if (g.userData.plot) compoundWall(g, x, z, g.rotation.y, g.userData.plot);
             // roadside shops out of town have someone to talk to as well
             if (isShop && rng() < 0.45 && shops.length < 90) {
               const type = SHOP_TYPES[shops.length % SHOP_TYPES.length], rot = g.rotation.y;
@@ -848,7 +1011,7 @@ export function buildWorld(scene) {
   animated.push((t) => { for (let i = 0; i < shops.length; i++) shops[i].mesh.userData.arm.rotation.z = Math.max(0, Math.sin(t * 1.5 + i * 2)) * 2.2; });
 
   groundContactShade(terrainGeo, colliders);
-  return { colliders, beacons, shops, trains: rail.trainBodies, update: (t, camera) => animated.forEach((f) => f(t, camera)) };
+  return { colliders, beacons, shops, plots, trains: rail.trainBodies, update: (t, camera) => animated.forEach((f) => f(t, camera)) };
 }
 
 export { roadY };

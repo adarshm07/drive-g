@@ -126,6 +126,40 @@ export const STATION_LAYOUT = {
 // cut or filled to meet it, and nothing gets built on it. Through the station it covers the whole layout.
 export const RAIL_PTS = [];
 for (let i = 0; i < RAILWAY.line.length; i += 2) RAIL_PTS.push([RAILWAY.line[i], RAILWAY.line[i + 1]]);
+// Roads here are drawn several times wider than life, so where the real line runs beside a road
+// the two would overlap. Shift the line sideways, away from any road running parallel within
+// RAIL_CLEAR of it; where a road crosses the line (a level crossing) nothing moves.
+{
+  const RAIL_CLEAR = 9.5, raw = samplePath(RAIL_PTS, 3), n = raw.length;
+  const stx = Math.sin(STATION.rot), stz = Math.cos(STATION.rot);
+  let push = raw.map(([x, z], i) => {
+    const a = raw[Math.max(0, i - 1)], b = raw[Math.min(n - 1, i + 1)], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const tx = (b[0] - a[0]) / l, tz = (b[1] - a[1]) / l;
+    if (Math.hypot(x - STATION.x, z - STATION.z) < 75) return 0;     // the station has its own layout
+    const ci = Math.floor(x / CELL), cj = Math.floor(z / CELL);
+    let best = RAIL_CLEAR, bc = null, bk = 0;
+    for (let p = ci - 1; p <= ci + 1; p++) for (let q = cj - 1; q <= cj + 1; q++) {
+      const cell = grid.get(key(p, q));
+      if (cell) for (let k = 0; k < cell.length; k += STRIDE) {
+        const d = Math.hypot(cell[k] - x, cell[k + 1] - z) - cell[k + 2];
+        if (d < best) { best = d; bc = cell; bk = k; }
+      }
+    }
+    if (!bc || Math.abs(tx * bc[bk + 4] + tz * bc[bk + 5]) < 0.8) return 0;   // no road near, or it crosses
+    const side = Math.sign((x - bc[bk]) * -tz + (z - bc[bk + 1]) * tx) || 1;  // which side of the road the line is on
+    return (RAIL_CLEAR - best) * side;                                        // along the left normal (-tz, tx)
+  });
+  // widen each shift along the line, then ease in and out of it, so the track stays smooth
+  const spread = (arr, r, f) => arr.map((_, i) => f(arr.slice(Math.max(0, i - r), i + r + 1)));
+  push = spread(push, 6, (w) => w.reduce((m, v) => (Math.abs(v) > Math.abs(m) ? v : m), 0));
+  for (let k = 0; k < 2; k++) push = spread(push, 6, (w) => w.reduce((s, v) => s + v, 0) / w.length);
+  const moved = raw.map(([x, z], i) => {
+    const a = raw[Math.max(0, i - 1)], b = raw[Math.min(n - 1, i + 1)], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    return [x - ((b[1] - a[1]) / l) * push[i], z + ((b[0] - a[0]) / l) * push[i]];
+  });
+  RAIL_PTS.length = 0;
+  RAIL_PTS.push(...moved);
+}
 {
   const sm = samplePath(RAIL_PTS, 2), slots = [];
   const stx = Math.sin(STATION.rot), stz = Math.cos(STATION.rot), [b0, b1] = STATION_LAYOUT.band;
