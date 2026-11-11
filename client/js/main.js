@@ -4,6 +4,7 @@ import { makeCar, makeLabel, loadCarModels } from './cars.js';
 import { buildWorld } from './scene.js';
 import { makeKeeper } from './shops.js';
 import { buildTraffic } from './traffic.js';
+import { createWaterFx } from './splash.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -16,6 +17,7 @@ const renderer = new THREE.WebGLRenderer({ canvas: $('c'), antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, 1, 0.5, 900);
+const waterFx = createWaterFx(scene, WORLD.water);
 
 // The terrain (coastline, rivers, beaches) is a small raster built from OpenStreetMap data.
 const terrainImg = await new Promise((resolve, reject) => {
@@ -555,7 +557,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyR' && !e.repeat) respawn();
   if (e.code === 'KeyF' && !e.repeat) toggleFoot();
   if (e.code === 'KeyE' && !e.repeat && nearShop) openDialog(nearShop);
-  if (e.code === 'Escape') closeDialog();
+  if (e.code === 'Escape') { closeDialog(); showTrips(false); }
   if (e.code === 'Enter') { e.preventDefault(); $('chatInput').focus(); }
 });
 addEventListener('keyup', (e) => { if (KEYS[e.code]) input[KEYS[e.code]] = false; });
@@ -571,16 +573,21 @@ document.querySelectorAll('#touch button').forEach((b) => {
 // On a road (including bridges) the car sits on the road surface; elsewhere on the ground,
 // or wading in shallow water.
 const onRoad = (x, z) => distToRoad(x, z) < 0.4;
-const groundY = (x, z) => (onRoad(x, z) ? Math.max(heightAt(x, z), 0.15) + 0.12 : Math.max(heightAt(x, z), WORLD.water - 0.3) + 0.1);
-// Deep water stops the car unless it is on a bridge.
-const blocked = (x, z) => heightAt(x, z) < WORLD.water - 0.45 && !onRoad(x, z);
+const groundY = (x, z) => (onRoad(x, z) ? Math.max(heightAt(x, z), 0.15) + 0.12 : heightAt(x, z) + 0.1);
+// How far below the water surface the ground is (0 on land and on bridges).
+const depthAt = (x, z) => (onRoad(x, z) ? 0 : Math.max(0, WORLD.water - heightAt(x, z)));
+// Cars wade up to the wheel arches, people up to the waist; deeper water needs a bridge.
+const WADE_CAR = 0.95, WADE_FOOT = 1.15;
+const blocked = (x, z, limit = WADE_CAR) => depthAt(x, z) > limit;
+let lastDeepToast = 0;
 
 function drive(dt) {
   const s = me.spec;
   const thr = (input.up ? 1 : 0) - (input.down ? 1 : 0);
   const steer = (input.left ? 1 : 0) - (input.right ? 1 : 0);
   const offroad = distToRoad(me.x, me.z) > 0.6 && !inBeach(me.x, me.z); // the drive-in beach is hard sand
-  const max = s.maxSpeed * (offroad ? s.offroad : 1) * (performance.now() < me.boostUntil ? 1.15 : 1); // chai boost
+  const wet = Math.min(1, depthAt(me.x, me.z) / WADE_CAR);                // 0 dry .. 1 as deep as a car can go
+  const max = s.maxSpeed * (offroad ? s.offroad : 1) * (1 - 0.7 * wet) * (performance.now() < me.boostUntil ? 1.15 : 1); // chai boost
 
   if (thr > 0) me.speed += s.accel * dt;
   else if (thr < 0) me.speed -= (me.speed > 0 ? 24 : s.accel * 0.6) * dt;
@@ -595,6 +602,11 @@ function drive(dt) {
 
   // sea and rivers: splash in the shallows, cross deep water only on bridges (slide along the bank)
   if (blocked(x, z)) {
+    if (Math.abs(me.speed) > 4) { // ploughing into deep water: a big splash, and the water stops you
+      waterFx.spray(x, z, Math.sin(me.rot), Math.cos(me.rot), Math.min(70, Math.abs(me.speed) * 5), 4 + Math.abs(me.speed) * 0.15);
+      waterFx.ripple(x, z, 7, 2.2);
+      if (performance.now() - lastDeepToast > 5000) { lastDeepToast = performance.now(); toast(null, 'Too deep to drive any further. Rivers can only be crossed on a bridge.'); }
+    }
     if (!blocked(x, me.z)) z = me.z;
     else if (!blocked(me.x, z)) x = me.x;
     else { x = me.x; z = me.z; }
@@ -625,10 +637,11 @@ function walk(dt) {
   const thr = (input.up ? 1 : 0) - (input.down ? 1 : 0);
   const steer = (input.left ? 1 : 0) - (input.right ? 1 : 0);
   me.speed = thr > 0 ? (input.run ? RUN : WALK) : thr < 0 ? -WALK * 0.6 : 0;
+  if (depthAt(me.x, me.z) > 0.3) me.speed *= 0.5;                  // wading is slow
   me.rot += steer * 2.6 * dt;
   let x = me.x + Math.sin(me.rot) * me.speed * dt;
   let z = me.z + Math.cos(me.rot) * me.speed * dt;
-  if (blocked(x, z)) { x = me.x; z = me.z; }
+  if (blocked(x, z, WADE_FOOT)) { x = me.x; z = me.z; }
   x = Math.max(BOUNDS.x0 + 4, Math.min(BOUNDS.x1 - 4, x));
   z = Math.max(BOUNDS.z0 + 4, Math.min(BOUNDS.z1 - 4, z));
   for (const c of nearColliders(x, z)) {
@@ -640,6 +653,26 @@ function walk(dt) {
     if (d < min && d > 0.001) { x = v.x + (dx / d) * min; z = v.z + (dz / d) * min; }
   }
   me.x = x; me.z = z;
+}
+
+// Spray and ripples for anything moving through water: wheels throw spray back and out,
+// and a wake of rings follows. `who` keeps a little timer per car or person.
+function wake(who, x, z, rot, speed, dt, foot) {
+  const d = depthAt(x, z), v = Math.abs(speed);
+  if (d < 0.03) return;
+  who.wakeT = (who.wakeT || 0) - dt;
+  if (who.wakeT <= 0 && (v > 0.4 || Math.random() < dt * 0.6)) {
+    who.wakeT = foot ? 0.45 : Math.max(0.12, 0.5 - v * 0.02);
+    waterFx.ripple(x, z, foot ? 1.4 : 2.5 + v * 0.12, foot ? 1.2 : 1.8);
+  }
+  if (foot || v < 1.5) return;
+  const fx = Math.sin(rot), fz = Math.cos(rot), back = Math.sign(speed);
+  const n = Math.min(6, Math.ceil(v * dt * 3 * (0.4 + Math.min(1, d * 2))));
+  for (const side of [1, -1]) {               // from each wheel line, thrown backwards and outwards
+    const wx = x + fz * side * 0.85, wz = z - fx * side * 0.85;
+    waterFx.spray(wx - fx * back * 1.2, wz - fz * back * 1.2, -fx * back + fz * side * 0.6, -fz * back - fx * side * 0.6, n, 1.2 + v * 0.12);
+    waterFx.spray(wx + fx * back * 1.3, wz + fz * back * 1.3, fz * side, -fx * side, Math.ceil(n / 2), 1 + v * 0.08);
+  }
 }
 
 function placeAvatar(av, x, z, rot, speed, t) {
@@ -781,6 +814,68 @@ function closeDialog() { dlgShop = null; $('dialog').hidden = true; }
 $('dlgClose').onclick = closeDialog;
 $('talkPrompt').onclick = () => nearShop && openDialog(nearShop);
 $('carPrompt').onclick = toggleFoot;
+
+// ---------- walk / drive button ----------
+function updateFootBtn() { $('footBtn').textContent = me.foot ? '🚗 Drive' : '🚶 Walk'; }
+$('footBtn').onclick = (e) => {
+  e.currentTarget.blur(); // keep Space and Enter for driving and chat
+  if (mode !== 'play') return;
+  if (!me.foot || Math.hypot(me.car.x - me.x, me.car.z - me.z) < 4.5) toggleFoot();
+  else if (depthAt(me.x, me.z) > WADE_CAR) toast(null, 'Too deep for the car here. Walk back towards the shore.');
+  else { // far from the car: it comes to you
+    Object.assign(me, { foot: false, speed: 0 });
+    me.avatar.visible = false;
+    toast(null, 'Your car is here. Drive on.');
+  }
+  updateFootBtn();
+};
+
+// ---------- beach trips ----------
+// Drop the player on a road just outside the beach, facing it, so they drive the last stretch
+// (and still discover the place by getting there).
+const BEACHES = [
+  { id: 'beach', note: 'Drive along 4 km of hard sand' },
+  { id: 'payyambalam', note: 'Town beach, next to Kannur' },
+].map((b) => ({ ...b, lm: LANDMARKS.find((l) => l.id === b.id) })).filter((b) => b.lm);
+function tripStart(lm) {
+  let best = null, bd = Infinity;
+  for (const r of ROADS) {
+    if (r.bridge) continue;
+    for (let i = 0; i + 1 < r.pts.length; i++) {
+      const [x, z] = r.pts[i], d = Math.hypot(x - lm.x, z - lm.z);
+      if (d < lm.r + 12 || d > lm.r + 90 || heightAt(x, z) < WORLD.water + 0.1) continue;
+      // face along the road, in whichever direction heads towards the beach
+      let tx = r.pts[i + 1][0] - x, tz = r.pts[i + 1][1] - z;
+      const tl = Math.hypot(tx, tz) || 1, toward = (tx * (lm.x - x) + tz * (lm.z - z)) / (tl * d);
+      if (Math.abs(toward) < 0.55) continue; // this stretch runs past the beach, not towards it
+      if (toward < 0) { tx = -tx; tz = -tz; }
+      const score = d * (2 - Math.abs(toward));
+      if (score < bd) { bd = score; best = { x, z, rot: Math.atan2(tx, tz) }; }
+    }
+  }
+  return best ?? { x: lm.x + lm.r + 20, z: lm.z, rot: -Math.PI / 2 };
+}
+function showTrips(open) {
+  $('trips').hidden = !open;
+  $('beachBtn').setAttribute('aria-expanded', String(open));
+}
+for (const b of BEACHES) {
+  const el = document.createElement('button'), s = document.createElement('small');
+  el.textContent = b.lm.name;
+  s.textContent = b.note;
+  el.append(s);
+  el.onclick = () => {
+    showTrips(false);
+    if (mode !== 'play') return;
+    if (me.foot) { me.foot = false; me.avatar.visible = false; }
+    Object.assign(me, tripStart(b.lm), { speed: 0 });
+    first = true; // snap the camera instead of sweeping across the map
+    updateFootBtn();
+    toast(b.lm.name, 'Drive on to the sand.', b.lm.ml);
+  };
+  $('tripList').append(el);
+}
+$('beachBtn').onclick = (e) => { e.currentTarget.blur(); showTrips($('trips').hidden); };
 function updateTalk() {
   nearShop = null;
   if (Math.abs(me.speed) < 6) {
@@ -791,6 +886,7 @@ function updateTalk() {
     }
   }
   if (dlgShop && Math.hypot(dlgShop.x - me.x, dlgShop.z - me.z) > 14) closeDialog();
+  updateFootBtn();
   const v = nearVehicle(), ownCar = me.foot && Math.hypot(me.car.x - me.x, me.car.z - me.z) < 4.5;
   $('carPrompt').hidden = !(v || ownCar);
   if (ownCar) $('carPrompt').textContent = 'F · Get back in';
@@ -841,10 +937,12 @@ function frame() {
   world.update(t);
   engineUpdate(dt);
   traffic.update(Date.now() / 1000);
+  waterFx.update(dt);
 
   if (mode === 'play') {
     if (me.foot) { walk(dt); placeAvatar(me.avatar, me.x, me.z, me.rot, me.speed, t); }
     else { drive(dt); place(me.group, me.x, me.z, me.rot, me.speed, dt); }
+    wake(me, me.x, me.z, me.rot, me.speed, dt, me.foot);
 
     const k = 1 - Math.exp(-10 * dt);
     remotes.forEach((r) => {
@@ -854,6 +952,7 @@ function frame() {
       r.rot += d * k;
       if (r.foot) placeAvatar(r.avatar, r.x, r.z, r.rot, r.speed, t);
       else place(r.group, r.x, r.z, r.rot, r.speed, dt);
+      wake(r, r.x, r.z, r.rot, r.speed, dt, r.foot);
     });
 
     coconuts.forEach((m, id) => {

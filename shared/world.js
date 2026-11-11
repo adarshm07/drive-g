@@ -176,7 +176,14 @@ const smooth = (a, b, x) => {
 /** Terrain height at a point. The water surface is at WORLD.water (-0.7). */
 export function heightAt(x, z) {
   const sd = waterDist(x, z);
-  if (sd < 0) return Math.max(-4.5, sd * 0.55) - 0.25;
+  if (sd < 0) {
+    // The bank drops to the waterline (sd = -0.82, unchanged so shorelines stay put), then
+    // shelves gently for a few metres of wadeable shallows before falling away to deep water.
+    const edge = -0.82, shelf = -6;
+    if (sd > edge) return sd * 0.55 - 0.25;
+    if (sd > shelf) return WORLD.water + (sd - edge) * 0.2;
+    return Math.max(-4.5, WORLD.water + (shelf - edge) * 0.2 + (sd - shelf) * 0.55);
+  }
   // flat coastal plain in the west, rolling laterite hills that grow towards the east
   const east = smooth(-350, 520, x);
   const roll = Math.sin(x * 0.009 + Math.cos(z * 0.006) * 2.1) * Math.cos(z * 0.0105 + 0.7);

@@ -90,7 +90,16 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--gold); outl
 #speed b { font-size: 46px; font-variant-numeric: tabular-nums; line-height: 1; }
 #speed span { display: block; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
 #help { position: absolute; left: 14px; bottom: 14px; font-size: 12px; background: rgba(0, 0, 0, 0.45); padding: 6px 10px; border-radius: 4px; }
-#toMenu { pointer-events: auto; position: absolute; left: 14px; top: 56px; background: var(--cloth); color: var(--green); border: 0; border-radius: 4px; padding: 6px 12px; font-weight: 600; font-size: 13px; }
+#actions { pointer-events: auto; position: absolute; left: 14px; top: 56px; display: flex; gap: 8px; flex-wrap: wrap; }
+#actions button { background: var(--cloth); color: var(--green); border: 0; border-radius: 4px; padding: 6px 12px; font-weight: 600; font-size: 13px; cursor: pointer; }
+#actions button[aria-expanded="true"] { background: var(--gold); color: #1c1c1c; }
+#trips { pointer-events: auto; position: absolute; left: 14px; top: 96px; width: min(calc(100vw - 28px), 300px); background: var(--cloth); color: var(--ink); border-radius: 6px; border-left: 5px solid var(--gold); padding: 12px 14px; box-shadow: 0 8px 26px rgba(0, 0, 0, 0.35); }
+#trips[hidden] { display: none; }
+#trips b { color: var(--green); font-size: 15px; }
+#trips p { margin: 6px 0 10px; font-size: 13px; line-height: 1.4; }
+#tripList { display: grid; gap: 6px; }
+#tripList button { text-align: left; padding: 8px 10px; border: 1px solid var(--green); background: transparent; color: var(--green); border-radius: 4px; font-weight: 600; font-size: 13px; cursor: pointer; }
+#tripList small { display: block; font-weight: 400; color: var(--ink); opacity: 0.75; }
 
 #touch { display: none; }
 @media (pointer: coarse) {

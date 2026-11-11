@@ -66,7 +66,7 @@
     </div>
     <div id="toasts"></div>
     <div id="speed"><b id="kmh">0</b><span>km/h</span></div>
-    <div id="help">WASD / arrows · Space brake · F get out / in / take a vehicle · Shift run · E talk · Enter chat · H horn · R respawn · M map</div>
+    <div id="help">WASD / arrows · Space brake · F walk / drive / take a vehicle · Shift run · E talk · Enter chat · H horn · R respawn · M map</div>
     <button id="talkPrompt" hidden></button>
     <button id="carPrompt" hidden></button>
     <div id="dialog" hidden role="dialog" aria-labelledby="dlgTitle">
@@ -79,7 +79,16 @@
       <ul id="chatLog" aria-live="polite"></ul>
       <form id="chatForm"><input id="chatInput" maxlength="120" placeholder="Press Enter to chat" autocomplete="off" aria-label="Chat message"></form>
     </div>
-    <button id="toMenu">Garage</button>
+    <div id="actions">
+      <button id="toMenu">Garage</button>
+      <button id="footBtn" title="Get out and walk, or drive again (F)">🚶 Walk</button>
+      <button id="beachBtn" title="Go to a beach" aria-expanded="false" aria-controls="trips">🏖 Beach</button>
+    </div>
+    <div id="trips" hidden>
+      <b>Go to a beach</b>
+      <p>You are dropped on the road just before it. Drive on to the sand, and into the shallows if you like.</p>
+      <div id="tripList"></div>
+    </div>
 
     <div id="touch">
       <div class="pad left">
