@@ -438,7 +438,8 @@ export function buildWorld(scene) {
         const seaward = (x, z) => Math.atan2(waterDist(x - 2, z) - waterDist(x + 2, z), waterDist(x, z - 2) - waterDist(x, z + 2));
         // groups on the sand, some with an umbrella and a mat
         for (let k = 0; k < groups; k++) {
-          const c = spot(3, 16);
+          // on the drive-in beach, keep to the water's edge or the top of the sand: the middle is for driving
+          const c = id === 'beach' ? (rng() < 0.6 ? spot(2.5, 5) : spot(15, 22)) : spot(3, 16);
           if (!c) continue;
           const [cx, cz] = c, n = 2 + Math.floor(rng() * 3), sea = seaward(cx, cz);
           if (rng() < 0.45) {
@@ -454,8 +455,7 @@ export function buildWorld(scene) {
             const m = person(rng() < 0.25 ? 0.62 : 1);
             m.position.set(x, heightAt(x, z), z);
             m.rotation.y = rng() < 0.6 ? sea + (rng() - 0.5) * 0.8 : Math.atan2(cx - x, cz - z); // watching the sea, or each other
-            statics.add(m);
-            colliders.push({ x, z, r: 0.35 });
+            statics.add(m); // people do not block cars: a beach crowd should never trap you
           }
         }
         // paddling in the shallows, knee deep
@@ -476,7 +476,7 @@ export function buildWorld(scene) {
           walkers.push({ m, a, b, len: Math.hypot(b[0] - a[0], b[1] - a[1]), speed: 1.1 + rng() * 0.5, phase: rng() * 100 });
         }
         for (let k = 0; k < kids; k++) {
-          const c = spot(4, 14);
+          const c = id === 'beach' ? spot(15, 22) : spot(4, 14);
           if (!c) continue;
           const m = person(0.6);
           scene.add(m);
