@@ -73,7 +73,7 @@ function frond(origin, { len, width, p0, p1, yaw, base, tip, segs = 7, fold = 0.
 }
 
 function ball(x, y, z, r, k) {
-  const g = new THREE.IcosahedronGeometry(r, 0).translate(x, y, z).toNonIndexed();
+  const g = new THREE.IcosahedronGeometry(r, 0).translate(x, y, z); // already non-indexed
   const c = new Float32Array(g.attributes.position.count * 3);
   for (let i = 0; i < c.length; i += 3) c.set([k.r, k.g, k.b], i);
   g.setAttribute('color', new THREE.BufferAttribute(c, 3));
